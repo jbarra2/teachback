@@ -85,8 +85,10 @@ if (!succeeds("gh", ["--version"]))
   warn(
     `GitHub CLI not installed (needed for /next-task etc.): ${installHint.gh}`,
   );
-else if (!succeeds("gh", ["auth", "status"]))
-  warn("GitHub CLI not signed in: run `gh auth login`");
+else if (!succeeds("gh", ["api", "user", "--jq", ".login"]))
+  warn(
+    "GitHub CLI can't reach GitHub with your login: run `gh auth status`, then `gh auth login`",
+  );
 else ok("GitHub CLI signed in");
 
 // 2. Environment file -------------------------------------------------------

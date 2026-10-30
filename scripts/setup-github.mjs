@@ -74,8 +74,26 @@ try {
     "GitHub CLI not found. Install it (https://cli.github.com) and run `gh auth login`.",
   );
 }
-if (gh(["auth", "status"], { allowFail: true }) === null)
-  fail("Run `gh auth login` first.");
+// Check that gh can actually call the API as you (more reliable than `gh auth status`,
+// which also fails when an unrelated saved account or token has a problem).
+let login;
+try {
+  login = execFileSync("gh", ["api", "user", "--jq", ".login"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+} catch (err) {
+  const said =
+    (err.stderr || err.message || "").toString().trim() || "(no output)";
+  const envToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  fail(
+    `The GitHub CLI can't call the API with your login.\n  gh said: ${said}\n  ` +
+      (envToken
+        ? "A GH_TOKEN or GITHUB_TOKEN environment variable is set, and gh uses it instead of your login. Remove it (or fix it) and try again."
+        : "Run `gh auth status` to see which account is the problem, then `gh auth login` (GitHub.com → HTTPS → Login with a web browser)."),
+  );
+}
+console.log(`Signed in to GitHub as ${login}`);
 
 const repo = ghJson(["repo", "view", "--json", "nameWithOwner"]).nameWithOwner;
 console.log(
