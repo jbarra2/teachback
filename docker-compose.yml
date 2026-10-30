@@ -1,0 +1,37 @@
+# Local databases. Start with `npm run db:up` (setup does this for you).
+# Ports are bound to 127.0.0.1 only, so nothing on your network can reach them.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: teachback
+      POSTGRES_PASSWORD: teachback
+      POSTGRES_DB: teachback
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teachback -d teachback"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  db-test:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: teachback
+      POSTGRES_PASSWORD: teachback
+      POSTGRES_DB: teachback_test
+    ports:
+      - "127.0.0.1:5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teachback -d teachback_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

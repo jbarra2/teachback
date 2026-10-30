@@ -1,0 +1,24 @@
+# Auto-requests reviewers. Don't turn on "require code owner review":
+# the lead's own PRs would deadlock.
+/openapi/                   @jbarra2
+/prisma/                    @jbarra2
+/src/lib/schemas/           @jbarra2
+/src/lib/api/               @jbarra2
+/src/proxy.ts               @jbarra2
+/tests/helpers/             @jbarra2
+/tests/contract/            @jbarra2
+/tests/e2e/                 @<AI_PARTNER_GITHUB_USERNAME>
+/scripts/                   @jbarra2
+/.githooks/                 @jbarra2
+/.github/                   @jbarra2
+/docs/TESTING.md            @jbarra2
+/src/lib/ai/                @<AI_PARTNER_GITHUB_USERNAME>
+/src/lib/ingest/            @<AI_PARTNER_GITHUB_USERNAME>
+/src/app/api/documents/     @<AI_PARTNER_GITHUB_USERNAME>
+/src/app/api/concepts/      @<AI_PARTNER_GITHUB_USERNAME>
+/src/app/api/questions/     @<AI_PARTNER_GITHUB_USERNAME>
+/src/app/(app)/             @<FRONTEND_PARTNER_GITHUB_USERNAME>
+/src/app/(auth)/            @<FRONTEND_PARTNER_GITHUB_USERNAME>
+/src/components/            @<FRONTEND_PARTNER_GITHUB_USERNAME>
+/src/lib/api-client/        @<FRONTEND_PARTNER_GITHUB_USERNAME>
+/src/lib/mastery/           @<FRONTEND_PARTNER_GITHUB_USERNAME>

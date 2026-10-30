@@ -1,0 +1,716 @@
+{
+  "milestones": [
+    {
+      "key": "M1",
+      "title": "M1 Foundation",
+      "due": "2026-10-31",
+      "description": "Repo, DB, contract, auth, test infrastructure, AI wrapper, ingestion. Everyone can build in parallel."
+    },
+    {
+      "key": "M2",
+      "title": "M2 Vertical slice",
+      "due": "2026-11-02",
+      "description": "Security baseline + upload -> concepts -> question -> submit, end to end, with security tests."
+    },
+    {
+      "key": "M3",
+      "title": "M3 Core features",
+      "due": "2026-11-05",
+      "description": "Grounded feedback, mastery, concept map, practice weakest, mocks removed."
+    },
+    {
+      "key": "M4",
+      "title": "M4 Ship",
+      "due": "2026-11-08",
+      "description": "Eval, E2E security tests, polish, bug bash, README (work stops Saturday night), then submission on Canvas Sunday."
+    }
+  ],
+  "labels": [
+    {
+      "name": "lead",
+      "color": "1d76db",
+      "description": "Track: platform, data, security (lead)"
+    },
+    {
+      "name": "ai",
+      "color": "8250df",
+      "description": "Track: AI & ingestion"
+    },
+    {
+      "name": "frontend",
+      "color": "0e8a16",
+      "description": "Track: frontend"
+    },
+    {
+      "name": "critical-path",
+      "color": "d93f0b",
+      "description": "Delays here delay the whole project"
+    },
+    {
+      "name": "security",
+      "color": "5319e7",
+      "description": "Security-focused work"
+    },
+    {
+      "name": "in-progress",
+      "color": "fbca04",
+      "description": "Someone is working on it"
+    },
+    {
+      "name": "in-review",
+      "color": "c5def5",
+      "description": "PR open, waiting for review"
+    },
+    {
+      "name": "bug",
+      "color": "b60205",
+      "description": "Something is broken"
+    },
+    {
+      "name": "stretch",
+      "color": "bfdadc",
+      "description": "Nice to have; first to cut"
+    }
+  ],
+  "tracks": {
+    "lead": {
+      "label": "lead",
+      "teamKey": "lead"
+    },
+    "ai": {
+      "label": "ai",
+      "teamKey": "ai"
+    },
+    "frontend": {
+      "label": "frontend",
+      "teamKey": "frontend"
+    }
+  },
+  "tasks": [
+    {
+      "id": "T01",
+      "title": "Scaffold Next.js app & tooling",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Thu 10/29 – Fri 10/30",
+      "blockedBy": [],
+      "critical": true,
+      "goal": "Create the app inside the existing repo with all quality tooling wired, so `npm run setup` and `npm run verify` work for everyone.",
+      "acceptance": [
+        "`create-next-app@latest` (TypeScript, ESLint, Tailwind, App Router, `src/`, `@/*` alias), scaffolded in a temp folder and merged in. Every existing day-one file is kept, and `.gitignore` is merged.",
+        "Add zod v4, vitest + @vitest/coverage-v8, Testing Library + jsdom, prettier (`endOfLine: lf`), and tsx. Vitest `unit` project: node environment for `*.test.ts`, jsdom for `*.test.tsx`, one sample test each. The `integration` project comes in T07.",
+        "ESLint flat config with every rule in docs/TESTING.md §5. Typed linting (and the layering rules) apply to `src/**` and `tests/**`; `scripts/**` and config files use the untyped base config with `no-console` off. Generated files (`src/generated/**`, `src/lib/api-client/schema.d.ts`) are in both `.prettierignore` and the ESLint ignores.",
+        "package.json scripts from PLAN §10 that don't need later packages, including `setup`, `verify`, `check`, `typecheck` (`next typegen && tsc --noEmit`), `test:ci`, `audit`, `db:up`, `db:down`, and `prepare` (`node scripts/install-hooks.mjs`).",
+        "Folder skeleton from PLAN §5. Run `npm run format` once so the day-one docs pass `format:check`.",
+        "On a fresh clone, `npm run setup` finishes (later steps skip cleanly). `npm run verify` and CI pass. Committing a fake `sk-ant-...` key is blocked by the pre-commit hook."
+      ],
+      "refs": "PLAN §3, §5, §10; TESTING §2, §5"
+    },
+    {
+      "id": "T02",
+      "title": "Database: Docker Postgres + Prisma 7 + Better Auth models + schema",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Fri 10/30",
+      "blockedBy": ["T01"],
+      "critical": true,
+      "goal": "A working local database with the full schema for everyone.",
+      "acceptance": [
+        "`npm run db:up` starts `db` (localhost:5433) and `db-test` (localhost:5434, tmpfs) from docker-compose.yml. Both are bound to 127.0.0.1 only.",
+        "Prisma 7 per PLAN §3: `prisma-client` generator with output `src/generated/prisma`, `prisma.config.ts` using `DIRECT_URL`, and `@prisma/adapter-pg` at runtime.",
+        "Better Auth with a minimal `src/lib/auth.ts`. Auth models generated with its CLI. Domain models from PLAN §6, including `ApiRateLimit`. First migration created.",
+        "`src/lib/db.ts` singleton (cached on globalThis in dev).",
+        "Scripts `db:migrate`, `db:update`, `db:seed` (stub), `db:studio`, `db:generate`, `postinstall`. `npx prisma validate` passes in CI.",
+        "`npm run setup` on a fresh clone now starts both databases and applies migrations."
+      ],
+      "refs": "PLAN §3, §6, §10"
+    },
+    {
+      "id": "T03",
+      "title": "API contract: openapi.yaml + Scalar docs + zod schemas + client types",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Fri 10/30",
+      "blockedBy": ["T01"],
+      "critical": true,
+      "goal": "One hand-written contract that frontend, backend and tests all build against.",
+      "acceptance": [
+        "`openapi/openapi.yaml` (OpenAPI 3.1, hand-written) documents every endpoint in PLAN §7. It includes request/response schemas with `additionalProperties: false`, every limit from PLAN §7 (maxLength, enums, cuid pattern), every error response with the shared Error schema, examples, and the cookie-session security scheme.",
+        "`GET /api/openapi` serves the spec. `GET /api/docs` renders it with Scalar (`@scalar/nextjs-api-reference`). Both return 404 unless `API_DOCS_ENABLED=true`. If Vercel needs it, add the spec file to `outputFileTracingIncludes`.",
+        "`npm run api:lint` (Redocly CLI) passes. `npm run api:types` generates `src/lib/api-client/schema.d.ts` (openapi-typescript). `npm run api:types:check` fails when the generated file is stale.",
+        "zod request schemas (body, params, query) in `src/lib/schemas/` mirror the spec, including limits, and use `.strict()` to reject unknown fields.",
+        "Unit tests: every request example in the spec parses with its zod schema; over-limit strings and unknown fields are rejected."
+      ],
+      "refs": "PLAN §7; TESTING §3"
+    },
+    {
+      "id": "T04",
+      "title": "Claude API wrapper + fake provider with failure modes",
+      "track": "ai",
+      "milestone": "M1",
+      "date": "Fri 10/30",
+      "blockedBy": ["T01"],
+      "critical": true,
+      "goal": "One safe, typed way to call Claude, plus a free fake that can also simulate every failure.",
+      "acceptance": [
+        "`src/lib/ai/provider.ts`: `generateJson(schema, { system, user }, { model: 'fast' | 'smart' })` using `@anthropic-ai/sdk` structured outputs (`client.messages.parse` with the Zod helper; check the installed SDK's README). Models come from `AI_MODEL_FAST` and `AI_MODEL_SMART`.",
+        "1 retry on parse/validation failure and a 60 s timeout. A typed `AiError` with codes TIMEOUT, RATE_LIMITED, UPSTREAM, INVALID_OUTPUT.",
+        "`AI_PROVIDER=fake`: deterministic fixtures per task, plus failure modes (`timeout`, `malformed`, `rate_limited`, `server_error`, `fabricated_evidence`) that tests can select.",
+        "`npm run ai:ping` makes one tiny real call to confirm the key works.",
+        "Unit tests: success, retry then success, retry then `AiError`, and each failure mode mapping to the right code. The API key never appears in errors or log output."
+      ],
+      "refs": "PLAN §8; TESTING §6"
+    },
+    {
+      "id": "T05",
+      "title": "App shell, layout, auth page UIs & error boundaries",
+      "track": "frontend",
+      "milestone": "M1",
+      "date": "Fri 10/30",
+      "blockedBy": ["T01"],
+      "critical": false,
+      "goal": "The skeleton every screen lives in. It fails gracefully.",
+      "acceptance": [
+        "Root layout, top nav, Tailwind base styles, and placeholder pages: `/courses`, `/courses/[courseId]`, `/courses/[courseId]/practice`, `/courses/[courseId]/map`.",
+        "`/login` and `/signup` forms with client validation (email format, password ≥ 8). Not wired yet; T06 wires them.",
+        "`error.tsx`, `not-found.tsx` and `loading.tsx` for the app routes. Errors never show stack traces or raw messages.",
+        "UI kit in `src/components/ui`: Button, Input, Textarea, Card, Badge, Spinner, EmptyState, ErrorState. Accessible labels and focus states.",
+        "Component tests (Testing Library + jsdom) for form validation and for the error boundary."
+      ],
+      "refs": "PLAN §5; TESTING §6"
+    },
+    {
+      "id": "T06",
+      "title": "Auth + secure API route wrapper (withApi)",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T02", "T03"],
+      "critical": true,
+      "goal": "Real accounts on the server, and one wrapper that makes every API route secure by default.",
+      "acceptance": [
+        "Better Auth handler at `src/app/api/auth/[...all]/route.ts`, plus `src/lib/auth-client.ts` for the UI (Frontend wires the pages in T15). Password min length 8. Better Auth's rate limiting is on, with database storage so it also works on serverless (regenerate the auth models if needed). Session cookie is httpOnly, SameSite=Lax, and Secure in production. Integration-level check: sign up, sign in and sign out work through the handler.",
+        "`withApi(handler, { auth?, rateLimit?, maxBodyBytes? })` in `src/lib/api/`. It reads the session from the `Request` headers only (no `next/headers`), so tests can call handlers directly:",
+        "- 401 when there's no session.",
+        "- 403 FORBIDDEN_ORIGIN for POST/PUT/PATCH/DELETE when `Origin` is present and isn't the app origin, or `Sec-Fetch-Site` is `cross-site`. Requests with neither header (curl, Postman, tests) are allowed.",
+        "- 413 when the body is over `maxBodyBytes` (default 64 KB), checked against `Content-Length` before reading, and enforced while reading.",
+        "- ZodError → 400 VALIDATION_ERROR with field messages.",
+        "- Known errors → their status. Anything else → 500 INTERNAL with a request id (`x-request-id`) and no stack trace or internal message.",
+        "- The `rateLimit` option is accepted (enforced in T14).",
+        "`runAfterResponse(fn)` in `src/lib/api/background.ts`: uses `after()` from `next/server` in the app and runs inline (awaitable) when `NODE_ENV=test`.",
+        "`src/proxy.ts` sends signed-out page requests to /login and signed-in users on /login to /courses.",
+        "Unit tests cover every `withApi` branch and `runAfterResponse` in both modes."
+      ],
+      "refs": "PLAN §4, §7; TESTING §3, §8"
+    },
+    {
+      "id": "T07",
+      "title": "Test infrastructure: integration DB, auth helpers, contract validation",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T02", "T03", "T06"],
+      "critical": true,
+      "goal": "Make thorough security and contract tests easy to write for every route.",
+      "acceptance": [
+        "Vitest `integration` project (`*.int.test.ts`). It loads `.env.test` first with `override: true`, migrates the test DB once, truncates all tables between test files, and runs files serially. **Safety:** the setup refuses to migrate or truncate unless the database name ends in `_test`, so it can never wipe the dev DB.",
+        "Helpers in `tests/helpers/`:",
+        "- `createUser()`",
+        "- `as(user).call(handler, { method, url, params?, body?, form? })`: calls an exported route handler directly with a real Better Auth session cookie and a same-origin `Origin` header",
+        "- `asAnonymous()`, `fromOrigin('https://evil.example')` and `crossSite()` (sets `Sec-Fetch-Site: cross-site`)",
+        "- `expectMatchesOpenApi(res, 'GET /api/courses/{id}')`, which validates status and body against openapi.yaml with Ajv (2020-12)",
+        "Route coverage test: every operation in openapi.yaml has a route handler export, and every route handler is documented.",
+        "`test:int` runs integration tests only. `test:ci` runs unit + integration with the coverage thresholds from docs/TESTING.md §4.",
+        "A sample integration test proves the helpers work (401 vs signed-in, foreign Origin → 403). CI's test job runs green with its Postgres service."
+      ],
+      "refs": "TESTING §3, §4"
+    },
+    {
+      "id": "T08",
+      "title": "Seed script",
+      "track": "ai",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T02"],
+      "critical": false,
+      "goal": "Realistic data for development, manual testing and the cross-user security checks.",
+      "acceptance": [
+        "`npm run db:seed` (this issue may create `prisma/seed.ts`) creates two demo users through Better Auth's server API (add the credentials to the README's demo-accounts section; this issue may edit README.md for that). Demo user A gets 1 course, 1 READY document with about 10 chunks, 5 concepts with links and edges, and 2 questions. Demo user B gets their own small course, for manual cross-user testing.",
+        "Idempotent (safe to re-run). Refuses to run when `NODE_ENV=production`."
+      ],
+      "refs": "PLAN §6"
+    },
+    {
+      "id": "T09",
+      "title": "Typed API client (openapi-fetch) + per-endpoint mocks",
+      "track": "frontend",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T03"],
+      "critical": true,
+      "goal": "Build every screen before the backend exists, fully typed from openapi.yaml.",
+      "acceptance": [
+        "`src/lib/api-client/` built on `openapi-fetch` and the generated `schema.d.ts`. Errors surface as `ApiError { code, message, status }`. A 401 redirects to /login.",
+        "Mock fixtures in `src/lib/mocks/` are typed with the generated types, so contract changes break them at compile time. `NEXT_PUBLIC_MOCK_ENDPOINTS` (courses, documents, concepts, question, answer, map, next) switches each endpoint. Mocks add about 300 ms of delay.",
+        "Unit tests for error mapping and the mock switch."
+      ],
+      "refs": "PLAN §7"
+    },
+    {
+      "id": "T10",
+      "title": "Text extraction + upload validation",
+      "track": "ai",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T01"],
+      "critical": true,
+      "security": true,
+      "goal": "Turn uploads into clean text, and reject anything malicious or broken.",
+      "acceptance": [
+        "`extractText(data, filename)` in `src/lib/ingest/`. PDF parsing is capped (100 pages, 15 s timeout) so a hostile PDF can't hang the server. `.txt` and `.md` must be valid UTF-8 (fatal decoder). PDFs must start with the `%PDF-` magic bytes and are parsed with `unpdf`. The extension and the content must agree, so a renamed binary is rejected.",
+        "Errors:",
+        "- UNSUPPORTED_TYPE → 400",
+        "- empty or scanned PDF → UNREADABLE_FILE → 422",
+        "- text over `MAX_NOTE_CHARS` → PAYLOAD_TOO_LARGE → 413",
+        "Output is normalized: Unicode NFC, and control characters stripped except newlines and tabs.",
+        "Fixtures in `fixtures/notes/`: 3 real note sets (one PDF), plus small hostile samples (fake PDF, binary, empty, invalid UTF-8). Oversize inputs are generated inside the tests, not committed. Each case has a unit test."
+      ],
+      "refs": "PLAN §7; TESTING §3, §8"
+    },
+    {
+      "id": "T11",
+      "title": "Chunker",
+      "track": "ai",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T10"],
+      "critical": true,
+      "goal": "Split notes into citable passages.",
+      "acceptance": [
+        "`chunk(text, title)` splits by headings, then paragraphs, into chunks of about 150–400 words, each with a `refLabel` like `<title> › <heading> ¶n`.",
+        "Deterministic, with a cap on chunks per document. Unit tests cover: headings, no headings, one giant line, a very long paragraph, a tiny document, and unicode."
+      ],
+      "refs": "PLAN §8"
+    },
+    {
+      "id": "T12",
+      "title": "Documents API + processing pipeline",
+      "track": "ai",
+      "milestone": "M2",
+      "date": "Sun 11/1",
+      "blockedBy": ["T02", "T03", "T04", "T06", "T07", "T11"],
+      "critical": true,
+      "goal": "Upload notes and reliably get concepts back.",
+      "acceptance": [
+        "`POST /api/documents` (multipart: `courseId`, `title`, `file` or `text`; `withApi({ rateLimit: 'upload', maxBodyBytes: MAX_UPLOAD_MB })`). Requests with no `Content-Length`, or one over the cap, get 413 before the body is parsed. Flow: `extractText` → save Document (QUEUED) → `runAfterResponse(() => processDocument(id))` → 202. The course must belong to the user.",
+        "`GET /api/documents/:id` returns status. A document still QUEUED or PROCESSING after 10 minutes is reported as FAILED (\"Processing timed out, please upload again\") so nothing stays stuck.",
+        "`processDocument` sets PROCESSING, then chunks and runs `extractConcepts` **outside** any transaction (Sonnet; batches; 8–15 concepts; drop unknown chunkIds and edges). Then one short transaction saves chunks, concepts, links and edges and sets READY. Concepts are upserted on `(courseId, nameKey)`, so concurrent uploads to the same course merge instead of failing. Any error sets FAILED with a friendly message. Partial data is never left behind.",
+        "Integration tests:",
+        "- the security matrix except S6 (T14 adds it once the limiter exists), including oversize → 413, wrong type → 400, unreadable → 422, and another user's courseId → 404",
+        "- the pipeline happy path with the fake provider",
+        "- every AI failure mode ends in FAILED with no orphan rows",
+        "- two uploads with overlapping concepts merge correctly",
+        "- responses validated against openapi.yaml"
+      ],
+      "refs": "PLAN §4, §7, §8; TESTING §3, §6"
+    },
+    {
+      "id": "T13",
+      "title": "Courses API",
+      "track": "lead",
+      "milestone": "M2",
+      "date": "Sun 11/1",
+      "blockedBy": ["T03", "T06", "T07"],
+      "critical": true,
+      "goal": "Create and list courses and see their concepts, securely.",
+      "acceptance": [
+        "`GET/POST /api/courses`, `GET /api/courses/:id` (with documents), and `GET /api/courses/:id/concepts` (with mastery state; PRACTICE/0 when there is no Mastery row). All use `withApi`; logic lives in `src/lib/services/courses.ts`.",
+        "Integration tests cover the full security matrix (TESTING §3) for every route, and every response is validated against openapi.yaml."
+      ],
+      "refs": "PLAN §4, §7, §9; TESTING §3"
+    },
+    {
+      "id": "T14",
+      "title": "Security baseline: rate limiting, CSP/headers, safe logging, health check",
+      "track": "lead",
+      "milestone": "M2",
+      "date": "Sun 11/1",
+      "blockedBy": ["T06", "T07", "T12"],
+      "critical": false,
+      "security": true,
+      "goal": "Defense in depth for the whole app, and protection against cost abuse.",
+      "acceptance": [
+        "DB-backed fixed-window rate limiter (`ApiRateLimit` table, atomic upsert), wired into `withApi({ rateLimit: 'ai' | 'upload' })` with the `RATE_LIMIT_*` env vars. Per-user limits plus a global daily AI cap (`RATE_LIMIT_AI_GLOBAL_PER_DAY`), so creating extra accounts can't drain the API credits. Returns 429 RATE_LIMITED with `Retry-After`. Limits and the clock are injectable, so tests set a low limit explicitly instead of depending on `.env.test`.",
+        "Headers on every response:",
+        "- a nonce-based CSP set in `src/proxy.ts` (follow the Next.js CSP guide), with `frame-ancestors 'none'`, `object-src 'none'` and `base-uri 'self'`",
+        "- `X-Content-Type-Options: nosniff`",
+        "- `Referrer-Policy: strict-origin-when-cross-origin`",
+        "- `Permissions-Policy`",
+        "- HSTS in production only",
+        "The Scalar docs route gets only the CSP exception it needs.",
+        "`src/lib/log.ts`: a structured logger that redacts secrets, cookies and auth headers and never logs note or answer text. Every `console` use in src/ goes through it.",
+        "`GET /api/health` returns `{ status, db }`, with no versions or environment info.",
+        "Tests:",
+        "- integration: S6 for `POST /api/documents` (429 + Retry-After at the limit; limits are per user; the global cap applies)",
+        "- integration: headers present on a page and on an API response",
+        "- unit: logger redaction"
+      ],
+      "refs": "PLAN §4, §7; TESTING §3, §8"
+    },
+    {
+      "id": "T15",
+      "title": "Notes library & upload UI",
+      "track": "frontend",
+      "milestone": "M2",
+      "date": "Sat 10/31 – Sun 11/1",
+      "blockedBy": ["T05", "T06", "T09"],
+      "critical": false,
+      "goal": "Students can create a course and upload notes.",
+      "acceptance": [
+        "Wire `/login`, `/signup` and sign-out to `src/lib/auth-client.ts` (from T06): show friendly errors, including Better Auth's rate-limit message.",
+        "`/courses`: list and create courses (name ≤ 120 chars, with a counter).",
+        "`/courses/[courseId]`: upload by file picker or pasted text, with client-side type and size checks before upload. A status list polls every 2 s until READY or FAILED, backs off on errors, and stops on unmount. Shows the error message on FAILED. When ready, shows the concept list.",
+        "All user-supplied text (names, titles, summaries) renders as plain text.",
+        "Works fully against mocks. Component tests cover the size/type checks and the polling stop."
+      ],
+      "refs": "PLAN §7; TESTING §6"
+    },
+    {
+      "id": "T16",
+      "title": "Practice session UI (feedback mocked)",
+      "track": "frontend",
+      "milestone": "M2",
+      "date": "Sun 11/1 – Mon 11/2",
+      "blockedBy": ["T05", "T09"],
+      "critical": true,
+      "goal": "The core screen: question → explain → submit.",
+      "acceptance": [
+        "`/courses/[courseId]/practice?concept=<id>`: a concept picker if no concept is given, and a question card with source labels.",
+        "Answer textarea: max 4000 characters with a counter; Ctrl/Cmd+Enter submits; the submit button is disabled while sending so it can't be double-submitted.",
+        "Shows mock feedback, plus a \"Next question\" button. Loading and error states.",
+        "Component tests: the length limit, double-submit prevention, and the error state."
+      ],
+      "refs": "PLAN §7"
+    },
+    {
+      "id": "T17",
+      "title": "Question generation endpoint",
+      "track": "ai",
+      "milestone": "M2",
+      "date": "Mon 11/2",
+      "blockedBy": ["T04", "T06", "T07", "T08", "T14"],
+      "critical": true,
+      "goal": "Ask a good question about a concept, answerable from the notes.",
+      "acceptance": [
+        "`POST /api/concepts/:id/question` uses `withApi({ rateLimit: 'ai' })`. It loads the concept's chunks and runs `generateQuestion` (fast model, Sonnet). The question must be answerable from those chunks, should prefer EXPLAIN/WHY, and must avoid the last 5 questions. Saves the Question.",
+        "Notes are wrapped as data in the prompt (PLAN §8). AI failures return 502 AI_UNAVAILABLE with a friendly message.",
+        "Integration tests: the security matrix, every fake failure mode → 502 with no Question saved, and responses validated against openapi.yaml."
+      ],
+      "refs": "PLAN §7, §8; TESTING §3, §6"
+    },
+    {
+      "id": "T18",
+      "title": "Evidence verification (pure function)",
+      "track": "ai",
+      "milestone": "M2",
+      "date": "Mon 11/2",
+      "blockedBy": ["T03"],
+      "critical": false,
+      "security": true,
+      "goal": "Guarantee that every quote we show really exists in the student's notes.",
+      "acceptance": [
+        "`verifyEvidence(feedback, chunks)` per PLAN §8 in `src/lib/ai/verify-evidence.ts`.",
+        "Unit tests:",
+        "- valid quote",
+        "- fabricated quote",
+        "- unknown chunkId",
+        "- whitespace and smart-quote normalization",
+        "- quote spanning two chunks",
+        "- all dropped → LOW + `unsupported`",
+        "- a randomized test: 200 random fabricated quotes never survive",
+        "Branch coverage ≥ 90%."
+      ],
+      "refs": "PLAN §8; TESTING §4"
+    },
+    {
+      "id": "T19",
+      "title": "Mastery module (pure functions)",
+      "track": "frontend",
+      "milestone": "M2",
+      "date": "Mon 11/2",
+      "blockedBy": ["T03"],
+      "critical": false,
+      "goal": "The scoring rules that power the concept map.",
+      "acceptance": [
+        "`applyResult`, `masteryState` and `selectNextConcept` in `src/lib/mastery/`, per PLAN §9.",
+        "Unit tests: every worked example in PLAN §9 (including the always-partial sequence), the LOW-confidence rule, the ordering rules, the single-concept case, and boundary values (0.4, 0.75). Branch coverage ≥ 90%."
+      ],
+      "refs": "PLAN §9; TESTING §4"
+    },
+    {
+      "id": "T20",
+      "title": "Vertical slice checkpoint (go/no-go)",
+      "track": "lead",
+      "milestone": "M2",
+      "date": "Mon 11/2 (late)",
+      "blockedBy": ["T13", "T12", "T15", "T16", "T17"],
+      "critical": true,
+      "goal": "Prove the whole loop works, and is secure, before building more.",
+      "acceptance": [
+        "With courses, documents, concepts and question running on the real API: sign up → create course → upload real notes → concepts appear → get a question → submit.",
+        "As demo user B, try demo user A's course and concept URLs: you get not-found everywhere.",
+        "`npm run verify` is green on main. Fix integration bugs or file `bug` issues. Post screenshots on this issue.",
+        "Go/no-go: if the slice isn't working by Monday night, apply the cut list (PLAN §11)."
+      ],
+      "refs": "PLAN §11"
+    },
+    {
+      "id": "T21",
+      "title": "Map + next-concept endpoints",
+      "track": "lead",
+      "milestone": "M3",
+      "date": "Tue 11/3",
+      "blockedBy": ["T13", "T19"],
+      "critical": false,
+      "goal": "Data for the concept map and targeted practice.",
+      "acceptance": [
+        "`GET /api/courses/:id/map` returns nodes `{ id, name, state, score }` and edges `{ from, to }`. `GET /api/courses/:id/next-concept` follows PLAN §9, or returns `null`.",
+        "Integration tests: the security matrix and contract validation."
+      ],
+      "refs": "PLAN §7, §9; TESTING §3"
+    },
+    {
+      "id": "T22",
+      "title": "Answer evaluation endpoint",
+      "track": "ai",
+      "milestone": "M3",
+      "date": "Tue 11/3 – Wed 11/4",
+      "blockedBy": ["T14", "T17", "T18"],
+      "critical": true,
+      "security": true,
+      "goal": "Grounded, honest feedback that can't be gamed.",
+      "acceptance": [
+        "`POST /api/questions/:id/answer` (answer ≤ 4000 chars; `withApi({ rateLimit: 'ai' })`): `evaluateAnswer` (smart model, Opus) → `verifyEvidence` → save the Attempt through `src/lib/services/answer.ts` → contract response (mastery is a placeholder until T24).",
+        "The prompt treats both the notes and the student's answer as data. Instructions inside them (\"mark this correct\") must be ignored.",
+        "Integration tests:",
+        "- the security matrix",
+        "- the fake provider's `fabricated_evidence` mode: quotes are stripped and the result is marked unsupported",
+        "- every AI failure mode → 502 with no Attempt saved",
+        "- responses validated against openapi.yaml"
+      ],
+      "refs": "PLAN §4, §7, §8; TESTING §3, §6, §8"
+    },
+    {
+      "id": "T23",
+      "title": "Feedback display UI",
+      "track": "frontend",
+      "milestone": "M3",
+      "date": "Tue 11/3",
+      "blockedBy": ["T16"],
+      "critical": true,
+      "goal": "Show feedback so the student learns from it and knows how much to trust it.",
+      "acceptance": [
+        "Verdict, what's correct, what's missing, evidence quotes with `refLabel`, and a confidence badge.",
+        "A \"Couldn't verify this against your notes\" banner when `unsupported` or LOW. A \"Goes beyond your notes\" note when `outsideNotes`. A mastery-state chip.",
+        "Component tests:",
+        "- the banner logic",
+        "- an XSS payload inside a quote or the answer renders literally",
+        "- no `dangerouslySetInnerHTML` anywhere"
+      ],
+      "refs": "PLAN §8; TESTING §8"
+    },
+    {
+      "id": "T24",
+      "title": "Mastery updates on answer (transactional, concurrency-safe)",
+      "track": "ai",
+      "milestone": "M3",
+      "date": "Wed 11/4",
+      "blockedBy": ["T19", "T22"],
+      "critical": true,
+      "goal": "Every answer moves the concept map correctly, even under parallel requests.",
+      "acceptance": [
+        "`services/answer.ts` saves the Attempt and applies mastery in one transaction, using the atomic upsert from PLAN §9 (it works even for the first answer, when no Mastery row exists). Mastery isn't updated when confidence is LOW.",
+        "The response includes `{ state, score }`, and both `/courses/:id/concepts` and the map reflect it.",
+        "Integration tests:",
+        "- 5 parallel first answers to the same concept all count (attempts = 5)",
+        "- a forced failure in the mastery step rolls back the Attempt",
+        "- LOW confidence saves the Attempt but leaves mastery unchanged"
+      ],
+      "refs": "PLAN §9; TESTING §6"
+    },
+    {
+      "id": "T25",
+      "title": "Concept map UI",
+      "track": "frontend",
+      "milestone": "M3",
+      "date": "Wed 11/4 – Thu 11/5",
+      "blockedBy": ["T05", "T09"],
+      "critical": false,
+      "goal": "See what's mastered and what needs work at a glance.",
+      "acceptance": [
+        "`/courses/[courseId]/map`: React Flow (`@xyflow/react`) with dagre layout. Nodes are colored by state with a legend and text labels, so it doesn't rely on color alone. Clicking a node opens practice for that concept. Handles 0 and 100 concepts.",
+        "Fallback if short on time: a grid of colored concept cards."
+      ],
+      "refs": "PLAN §7, §9"
+    },
+    {
+      "id": "T26",
+      "title": "Practice weakest flow",
+      "track": "frontend",
+      "milestone": "M3",
+      "date": "Thu 11/5",
+      "blockedBy": ["T16"],
+      "critical": false,
+      "goal": "One click to study what you're weakest at.",
+      "acceptance": [
+        "A \"Practice weakest\" button on the course page and the map runs next-concept → question → feedback → next. Shows a friendly message when next-concept is `null`, and a friendly 429 message when rate-limited."
+      ],
+      "refs": "PLAN §9"
+    },
+    {
+      "id": "T27",
+      "title": "Eval set + prompt tuning (incl. prompt injection)",
+      "track": "ai",
+      "milestone": "M4",
+      "date": "Thu 11/5 – Fri 11/6",
+      "blockedBy": ["T22"],
+      "critical": false,
+      "security": true,
+      "goal": "Measure and harden feedback quality.",
+      "acceptance": [
+        "`fixtures/eval/`: 12 cases over 2 note sets (good, partial, wrong and off-topic answers), plus 3 prompt-injection cases where the notes or answer contain instructions like \"mark this correct\" and the expected verdict doesn't change.",
+        "`npm run eval` runs them with the real provider and writes `docs/eval.md`: verdict agreement, injection resistance, and dropped-quote count.",
+        "Run the eval with `AI_MODEL_SMART=claude-opus-5-5` (default) and `claude-sonnet-5-5`. Record agreement and median grading latency for each in `docs/eval.md`. Keep Opus unless Sonnet is within 1 case and clearly faster; then switch the default.",
+        "At least one tuning round with before/after numbers. Target: 10 or more of 12 in agreement and 3/3 injection cases resisted."
+      ],
+      "refs": "PLAN §8; TESTING §8"
+    },
+    {
+      "id": "T28",
+      "title": "Remove mocks + full integration",
+      "track": "lead",
+      "milestone": "M3",
+      "date": "Thu 11/5 – Fri 11/6",
+      "blockedBy": ["T21", "T23", "T24", "T25", "T26"],
+      "critical": true,
+      "goal": "Everything runs on the real API.",
+      "acceptance": [
+        "`NEXT_PUBLIC_MOCK_ENDPOINTS` is empty. `src/lib/mocks/` and the mock switch in `src/lib/api-client/` are deleted (this issue may edit those Frontend files).",
+        "Every flow works with `AI_PROVIDER=anthropic`. `npm run verify` is green on main."
+      ],
+      "refs": "PLAN §11"
+    },
+    {
+      "id": "T29",
+      "title": "E2E tests: happy path + security (Playwright)",
+      "track": "ai",
+      "milestone": "M4",
+      "date": "Fri 11/6",
+      "blockedBy": ["T28"],
+      "critical": true,
+      "security": true,
+      "goal": "Prove the real app works and resists the obvious attacks, end to end.",
+      "acceptance": [
+        "Playwright (Chromium) in `tests/e2e/` (this issue owns that folder and may add `playwright.config.ts`). The `webServer` builds and starts the app on port 3100 with env from `.env.test` (test DB on 127.0.0.1:5434, `AI_PROVIDER=fake`, `BETTER_AUTH_URL=http://127.0.0.1:3100`) and `reuseExistingServer: false`, so it never touches the dev DB or a running dev server. Global setup migrates the test DB and creates the test users once, and specs reuse their sessions (`storageState`) so Better Auth's sign-in limiter isn't tripped. The CI `e2e` job turns on automatically once `playwright.config.ts` exists.",
+        "Tests:",
+        "- happy path: sign up → course → upload → practice → feedback → map",
+        "- signed-out visitors are sent to /login",
+        "- user B opening user A's course URL gets not-found",
+        "- an XSS payload in a course name and in an answer renders as text",
+        "- CSP and security headers are present",
+        "- sign out ends the session, and API calls then return 401"
+      ],
+      "refs": "TESTING §3, §7"
+    },
+    {
+      "id": "T30",
+      "title": "UI polish + accessibility pass",
+      "track": "frontend",
+      "milestone": "M4",
+      "date": "Fri 11/6",
+      "blockedBy": ["T15", "T23", "T25", "T26"],
+      "critical": false,
+      "goal": "Make it feel finished and usable by everyone.",
+      "acceptance": [
+        "Every page handles loading, empty and error states, with clear upload errors.",
+        "Keyboard navigation works everywhere, inputs have labels, and color contrast meets WCAG AA for the three states.",
+        "Layout works at 375 px and at laptop widths."
+      ],
+      "refs": "PLAN §1"
+    },
+    {
+      "id": "T31",
+      "title": "Deploy to Vercel + Neon (stretch)",
+      "track": "lead",
+      "milestone": "M4",
+      "date": "Fri 11/6 – Sat 11/7",
+      "blockedBy": ["T28"],
+      "critical": false,
+      "stretch": true,
+      "goal": "A free live URL, if time allows. Not required for submission.",
+      "acceptance": [
+        "Follow `docs/DEPLOY.md`. The smoke test passes on the live URL, and the security headers are present.",
+        "Live URL in the README. If this takes more than about 2 hours, drop it."
+      ],
+      "refs": "docs/DEPLOY.md"
+    },
+    {
+      "id": "T32",
+      "title": "Bug bash: smoke + abuse testing",
+      "track": "lead",
+      "milestone": "M4",
+      "date": "Sat 11/7",
+      "blockedBy": ["T27", "T29", "T30"],
+      "critical": true,
+      "security": true,
+      "goal": "Find and fix what's broken or exploitable before the stop.",
+      "acceptance": [
+        "All three people run the smoke and abuse checklists in docs/TESTING.md §7 on their own machines.",
+        "Every finding becomes a `bug` issue (label `security` if relevant). Each one is fixed with a regression test the same day, or listed under Known limitations in the README.",
+        "All PRs merged, and `ci-ok` plus CodeQL green on main by Saturday evening. **Work stops Saturday night.**"
+      ],
+      "refs": "TESTING §7"
+    },
+    {
+      "id": "T33",
+      "title": "README & submission prep",
+      "track": "lead",
+      "milestone": "M4",
+      "date": "Sat 11/7",
+      "blockedBy": ["T28"],
+      "critical": true,
+      "goal": "A README that lets a grader understand, run and trust the project.",
+      "acceptance": [
+        "The README covers:",
+        "- what it is, features and screenshots",
+        "- the stack and architecture (PLAN §4)",
+        "- setup (`npm run setup`) and the demo accounts",
+        "- how to run every test suite",
+        "- the security measures (TESTING §8 summary)",
+        "- how grounding and confidence work",
+        "- API docs (`/api/docs`)",
+        "- who did what, known limitations, and the live URL if T31 shipped",
+        "Fresh-clone test: in an empty folder, `npm run setup` then `npm run verify` both pass."
+      ],
+      "refs": "PLAN §4; TESTING §8"
+    },
+    {
+      "id": "T34",
+      "title": "Submit on Canvas",
+      "track": "lead",
+      "milestone": "M4",
+      "date": "Sun 11/8",
+      "blockedBy": ["T32", "T33"],
+      "critical": true,
+      "goal": "Hand in the finished project on time, with nothing left to chance.",
+      "acceptance": [
+        "Open the Canvas assignment and copy its requirements and rubric into this issue as a checklist; tick each one off.",
+        "Final check on a fresh clone: `npm run setup` and `npm run verify` pass; `ci-ok` and CodeQL are green on `main`.",
+        "Tag the release (`git tag v1.0.0 && git push origin v1.0.0`) and create a GitHub Release with a short summary: features, how to run it, known limitations.",
+        "Repo is public; the README is final (demo accounts, live URL if T31 shipped).",
+        "Submit on Canvas before the deadline (repo URL + release link). Post a screenshot of the submission confirmation in the group chat."
+      ],
+      "refs": "PLAN §11"
+    }
+  ]
+}

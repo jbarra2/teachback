@@ -1,0 +1,43 @@
+name: Task
+description: A unit of work for the backlog
+title: "Txx · "
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence. Why does this matter?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know it's done?
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: blocked
+    attributes:
+      label: Blocked by
+      description: Issues that must be merged first. Also add them in the sidebar under Relationships → Mark as blocked by.
+      placeholder: "- #12"
+  - type: dropdown
+    id: track
+    attributes:
+      label: Track
+      options: [lead, ai, frontend]
+    validations:
+      required: true
+  - type: input
+    id: planned
+    attributes:
+      label: Planned day
+      placeholder: "Wed 11/4"
+  - type: input
+    id: spec
+    attributes:
+      label: Spec
+      placeholder: "docs/PLAN.md §7"

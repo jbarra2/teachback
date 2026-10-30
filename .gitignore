@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+build/
+coverage/
+playwright-report/
+test-results/
+src/generated/
+.env
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+Thumbs.db
+.vercel
+.claude/settings.local.json

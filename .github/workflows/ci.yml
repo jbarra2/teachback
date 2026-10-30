@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 9 * * 1" # weekly: full-history secret scan + dependency audit
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  detect:
+    name: detect
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.d.outputs.app }}
+      e2e: ${{ steps.d.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: d
+        run: |
+          if [ -f package.json ]; then echo "app=true" >> "$GITHUB_OUTPUT"; else echo "app=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f playwright.config.ts ]; then echo "e2e=true" >> "$GITHUB_OUTPUT"; else echo "e2e=false" >> "$GITHUB_OUTPUT"; fi
+
+  static:
+    name: static (format, lint, types, OpenAPI)
+    needs: detect
+    if: needs.detect.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: cp .env.test .env
+      - run: npm ci
+      - run: npm run --if-present format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run --if-present api:lint
+      - run: npm run --if-present api:types:check
+      - name: Prisma schema
+        if: hashFiles('prisma/schema.prisma') != ''
+        run: npx prisma validate
+
+  test:
+    name: test (unit + integration + coverage)
+    needs: detect
+    if: needs.detect.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: teachback
+          POSTGRES_PASSWORD: teachback
+          POSTGRES_DB: teachback_test
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U teachback"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: cp .env.test .env
+      - run: npm ci
+      - run: npm run test:ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  security:
+    name: security (secrets + dependencies)
+    needs: detect
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - name: Secret scan (full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+      - uses: actions/setup-node@v5
+        if: needs.detect.outputs.app == 'true'
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: Dependency audit (production deps, high+)
+        if: needs.detect.outputs.app == 'true'
+        run: npm audit --omit=dev --audit-level=high
+
+  build:
+    name: build
+    needs: detect
+    if: needs.detect.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: cp .env.test .env
+      - run: npm ci
+      - run: npm run build
+
+  e2e:
+    name: e2e (Playwright)
+    needs: detect
+    if: needs.detect.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: teachback
+          POSTGRES_PASSWORD: teachback
+          POSTGRES_DB: teachback_test
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U teachback"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
+      - run: cp .env.test .env
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx prisma migrate deploy
+      - run: npm run build
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [detect, static, test, security, build, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs passed (or were skipped)
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            echo "One or more CI jobs failed."
+            exit 1
+          fi
+          echo "CI passed."
