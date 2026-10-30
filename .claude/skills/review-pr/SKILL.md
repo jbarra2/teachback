@@ -26,6 +26,7 @@ Review PR #$ARGUMENTS. Read-only unless I say otherwise.
      - tests actually assert behaviour (not just "doesn't throw")
    - **Correctness & stability:** logic bugs, edge cases, transactions, race conditions, stuck states, error handling, UI loading/error states.
    - **Team rules:** ownership (PLAN §2), protected files, scope creep, PR template filled, test evidence and `/security-review` result included, no AI attribution.
+   - **Journal** (`docs/journal/*.md`): only the author's own file changed; no keys, `.env` values or personal details (🔴 if found). Don't comment on the wording. A missing entry is a 🟢 nit.
    - **Readability:** naming, dead code, debug leftovers.
 4. **Draft the review:**
    - a summary and a recommendation (**Approve** / **Request changes**)

@@ -43,7 +43,7 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 | 4. Test     | `/test-task`                                              | Runs `npm run verify` (everything CI runs), audits security and stability coverage, fixes gaps, gives you manual test steps | Do the manual steps in the browser              |
 | 5. Security | `/security-review`                                        | Claude Code's built-in security review of your changes                                                                      | Make sure every finding is fixed or explained   |
 | 6. Review   | (you)                                                     | –                                                                                                                           | Skim the diff with the checklist below          |
-| 7. Ship     | `/finish-task`                                            | Final verify, commit, push (pre-push runs checks), PR with test evidence, watches CI                                        | Confirm when asked                              |
+| 7. Ship     | `/finish-task`                                            | Adds your journal entry, final verify, commit, push (pre-push runs checks), PR with test evidence, watches CI               | Pick how to write the journal entry; confirm    |
 | 8. Fix      | `/fix-ci` or `/address-review`                            | Fixes red CI or applies review comments                                                                                     | Confirm                                         |
 | 9. Merge    | Squash-merge when `ci-ok` + CodeQL are green and approved | The issue closes automatically                                                                                              | `/clear`, then step 1                           |
 
@@ -57,6 +57,18 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 - [ ] I can explain every file in the diff.
 
 **Reviewing a teammate's PR:** `/finish-task` requests both other teammates, and **one approval is enough**; whoever is free first reviews. CODEOWNERS automatically adds the lead for protected areas (contract, schema, security code). Run `/review-pr 31`: Claude drafts a security-focused review, you decide, and Claude posts it. Review within a few hours, because reviews unblock people.
+
+## Your work journal
+
+Everyone keeps `docs/journal/<your-github-username>.md`: one short entry per task with what you built, the hardest part and how you solved it, and what you learned. It's for studying later, the README's Team section, and your resume.
+
+You don't have to remember it. `/finish-task` adds the entry before it commits and asks how you want to answer the two questions:
+
+1. **I'll write my answers**: you type them.
+2. **Draft it, I'll edit**: Claude drafts from what actually happened in the session; you fix and approve.
+3. **Write it for me**: for when you're short on time. The entry is marked `<!-- needs-review -->`; read it and delete the marker before Sat Nov 7.
+
+Details and the format: `docs/JOURNAL.md`. Only edit your own journal, and never put keys or personal details in it (the repo is public).
 
 ## What checks your work, and when
 

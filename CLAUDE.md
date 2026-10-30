@@ -15,7 +15,7 @@ TeachBack is a Next.js app where students upload lecture notes, explain concepts
 | `/start-task <n>`  | Check it's ready, create the linked branch, read the spec, propose a plan with tests, build after "go"    |
 | `/test-task`       | `npm run verify`, security-matrix and stability audit, self-review, manual test steps                     |
 | `/security-review` | Built into Claude Code: security review of the branch's changes (run after `/test-task`)                  |
-| `/finish-task`     | Final verify, commit, push, open the PR with test evidence, watch CI                                      |
+| `/finish-task`     | Journal entry, final verify, commit, push, open the PR with test evidence, watch CI                       |
 | `/fix-ci`          | Diagnose and fix a failing CI run on my PR                                                                |
 | `/review-pr <n>`   | Security-focused review of a teammate's PR; draft comments for the human to post                          |
 | `/address-review`  | Apply the review feedback on my PR                                                                        |
@@ -25,7 +25,7 @@ If someone says "work on #n" without a command, follow `.claude/skills/start-tas
 ## Hard rules
 
 1. **One issue = one branch = one PR.** Do what the acceptance criteria say, nothing more. No drive-by refactors. Note follow-ups in the PR.
-2. **Ownership** (PLAN §2): only edit folders owned by the issue's track (label `lead`, `ai` or `frontend`), plus the shared `package.json`/`package-lock.json` and any exception the issue grants. Need a change elsewhere? Stop and say who to ask.
+2. **Ownership** (PLAN §2): only edit folders owned by the issue's track (label `lead`, `ai` or `frontend`), plus the shared `package.json`/`package-lock.json`, the user's own `docs/journal/<login>.md`, and any exception the issue grants. Need a change elsewhere? Stop and say who to ask.
 3. **Protected files:** `openapi/openapi.yaml`, `prisma/schema.prisma`, `prisma/migrations/**` and `src/lib/schemas/**` are changed only by lead-track issues, or when the issue explicitly says so.
 4. **Plan before code** when more than one file changes. The plan lists the tests, including the security matrix rows. Wait for "go".
 5. **Tests are part of the task** (TESTING §1):

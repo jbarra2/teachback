@@ -689,10 +689,11 @@
         "- the security measures (TESTING §8 summary)",
         "- how grounding and confidence work",
         "- API docs (`/api/docs`)",
-        "- who did what, known limitations, and the live URL if T31 shipped",
+        "- a Team section (who did what, from `docs/journal/`), known limitations, and the live URL if T31 shipped",
+        "Every teammate has read their journal and cleared the `<!-- needs-review -->` markers (`git grep -n needs-review docs/journal` prints nothing).",
         "Fresh-clone test: in an empty folder, `npm run setup` then `npm run verify` both pass."
       ],
-      "refs": "PLAN §4; TESTING §8"
+      "refs": "PLAN §4; TESTING §8; docs/JOURNAL.md"
     },
     {
       "id": "T34",
