@@ -1,8 +1,5 @@
-# gitleaks config for CI. Default rules plus a narrow allowlist.
+# gitleaks config for CI: the default rules, and every file is scanned (the env templates too,
+# so a real key pasted into .env.example or .env.test is caught).
 # To ignore a false positive on one line, add the comment `gitleaks:allow` (built into gitleaks).
 [extend]
 useDefault = true
-
-[allowlist]
-description = "Committed env templates contain placeholder/test values only"
-paths = ['''^\.env\.test$''', '''^\.env\.example$''']

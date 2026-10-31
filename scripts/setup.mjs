@@ -61,9 +61,13 @@ console.log("TeachBack setup\n===============");
 
 // 1. Prerequisites -----------------------------------------------------------
 section("1. Prerequisites");
-const nodeMajor = Number(process.versions.node.split(".")[0]);
-if (nodeMajor < 22)
-  die(`Node ${process.versions.node} is too old (need 22+).`, installHint.node);
+// Matches package.json "engines" (Vitest and jsdom need 22.13+ on the 22 line).
+const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 13))
+  die(
+    `Node ${process.versions.node} is too old (need 22.13+ or 24+).`,
+    installHint.node,
+  );
 ok(`Node ${process.versions.node}`);
 
 if (!succeeds("git", ["--version"]))
