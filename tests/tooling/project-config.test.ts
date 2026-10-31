@@ -50,6 +50,101 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
   );
 });
 
+describe("toolchain: one Node and npm for the team and CI", () => {
+  // npm 10 and npm 11 below 11.11 drop the lockfile's `libc` fields, so a machine on one of them
+  // rewrites package-lock.json on every install. npm 12 is untested, so it's out until checked.
+  // devEngines makes npm itself refuse the wrong version.
+  type Pkg = {
+    engines?: { node?: string };
+    devEngines?: { runtime?: { version?: string } };
+  };
+  const pkg = JSON.parse(
+    readFileSync(path.join(root, "package.json"), "utf8"),
+  ) as Pkg;
+  const lock = JSON.parse(
+    readFileSync(path.join(root, "package-lock.json"), "utf8"),
+  ) as { packages: Record<string, { engines?: unknown; libc?: unknown }> };
+  const ci = readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8");
+  const setupNodeSteps = (ci.match(/uses: actions\/setup-node@/g) ?? []).length;
+
+  it("devEngines refuses a Node or npm that would rewrite the lockfile", () => {
+    expect(pkg.devEngines).toEqual({
+      runtime: { name: "node", version: ">=24", onFail: "error" },
+      packageManager: {
+        name: "npm",
+        version: ">=11.11.0 <12",
+        onFail: "error",
+      },
+    });
+  });
+
+  it("engines.node, devEngines and CI's NODE_VERSION name the same Node", () => {
+    expect(pkg.engines).toEqual({ node: ">=24" });
+    expect(pkg.engines?.node).toBe(pkg.devEngines?.runtime?.version);
+    const floor = /^>=(\d+)$/.exec(pkg.devEngines?.runtime?.version ?? "");
+    expect(floor).not.toBeNull();
+    expect(ci).toMatch(new RegExp(`^ {2}NODE_VERSION: "${floor?.[1]}"$`, "m"));
+  });
+
+  it("the lockfile was written by an npm in range (root engines and libc fields kept)", () => {
+    expect(lock.packages[""].engines).toEqual(pkg.engines);
+    // npm 10 and npm 11 below 11.11 strip every `libc` field when they rewrite the lockfile.
+    const withLibc = Object.values(lock.packages).filter((p) =>
+      Array.isArray(p.libc),
+    );
+    expect(withLibc.length).toBeGreaterThan(0);
+  });
+
+  it("every CI job sets up Node 24 from one NODE_VERSION", () => {
+    expect(ci).toMatch(/^ {2}NODE_VERSION: "24"$/m);
+    // Exactly one definition: a job-level `env:` override would win over the workflow's, and so
+    // would a step writing it to $GITHUB_ENV or a job running in a container.
+    expect(ci.match(/NODE_VERSION:/g) ?? []).toHaveLength(1);
+    expect(ci).not.toMatch(/GITHUB_ENV[^\n]*NODE_VERSION|NODE_VERSION=/);
+    expect(ci).not.toMatch(/^\s+container:/m);
+    const versions = [...ci.matchAll(/node-version:\s*"([^"]*)"/g)].map(
+      (m) => m[1],
+    );
+    expect(versions.length).toBeGreaterThan(0);
+    expect(versions.length).toBe(setupNodeSteps);
+    for (const v of versions) expect(v).toBe("${{ env.NODE_VERSION }}");
+  });
+
+  it("each job that runs node or npm sets up Node first; only jobs that install cache npm", () => {
+    // Jobs sit two spaces in under `jobs:`. Comments are dropped so they can't count as steps.
+    const jobs = ci
+      .slice(ci.indexOf("\njobs:\n"))
+      .split(/\n(?= {2}[a-z0-9_-]+:\n)/)
+      .slice(1)
+      .map((block) => ({
+        id: /^ {2}([a-z0-9_-]+):/.exec(block)?.[1] ?? "",
+        code: block.replace(/^\s*#.*$/gm, ""),
+      }));
+    // Without setup-node, a job gets the runner's preinstalled Node instead of NODE_VERSION.
+    const usesNode = /\b(?:node|np[mx]) \S/;
+    const nodeJobs = jobs.filter((j) => usesNode.test(j.code));
+    expect(nodeJobs.map((j) => j.id)).toEqual([
+      "static",
+      "test",
+      "security",
+      "build",
+      "e2e",
+    ]);
+    for (const { id, code } of nodeJobs) {
+      const setupAt = code.indexOf("uses: actions/setup-node@");
+      expect(setupAt, `${id} sets up Node`).toBeGreaterThan(-1);
+      expect(setupAt, `${id} sets up Node before using it`).toBeLessThan(
+        code.search(usesNode),
+      );
+      // The audit-only job turns setup-node's auto-cache off, so it can't save a near-empty cache
+      // under the key the installing jobs use.
+      const installs = /\bnpm (ci|install)\b/.test(code);
+      expect(/\bcache: npm\b/.test(code), `${id} cache: npm`).toBe(installs);
+      expect(code.includes("package-manager-cache: false"), id).toBe(!installs);
+    }
+  });
+});
+
 describe("AI attribution stays out of git history (CLAUDE.md rule 7)", () => {
   it("Claude Code adds no attribution or session link to commits and PRs", () => {
     const settings = JSON.parse(

@@ -6,7 +6,7 @@ You pick a task from GitHub Issues, hand it to Claude Code, check the result, an
 
 **1. Install these** (Windows commands in parentheses):
 
-- Node.js 22+: https://nodejs.org (`winget install OpenJS.NodeJS.LTS`)
+- Node.js 24 or 26 (the current LTS) with the npm it comes with (11.11 or newer, below 12): https://nodejs.org (`winget install OpenJS.NodeJS.LTS`)
 - Git (`winget install Git.Git`)
 - GitHub CLI (`winget install --id GitHub.cli`), then run `gh auth login`
 - Docker Desktop: https://www.docker.com/products/docker-desktop/. **Windows:** accept the WSL 2 option and restart if asked. Start Docker Desktop and wait for "Engine running".
@@ -115,4 +115,5 @@ Full details: `docs/TESTING.md`. If a hook blocks you, it tells you why. Fix it 
 | Hook says "looks like a secret"                       | Remove it. If it's a false positive, add the comment `gitleaks:allow` on that line (the CI secret scan honours it too).     |
 | CI secret scan flags an already-pushed false positive | Add the finding's fingerprint (shown in the gitleaks log) to `.gitleaksignore`. If it's a real secret, **revoke it first**. |
 | Conflict in `package-lock.json`                       | `git checkout origin/main -- package-lock.json && npm install`, then commit                                                 |
+| `npm error code EBADDEVENGINES`                       | Wrong Node or npm. Install the current Node LTS (`winget install OpenJS.NodeJS.LTS`), check `npm -v` is 11.11+ and below 12 |
 | Windows: hook error mentioning `\r`                   | Run `npm install` (it normalizes hook line endings)                                                                         |

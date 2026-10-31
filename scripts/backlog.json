@@ -731,6 +731,26 @@
         "`npm run verify` and CI pass."
       ],
       "refs": "CLAUDE.md rule 7; docs/JOURNAL.md; CONTRIBUTING.md"
+    },
+    {
+      "id": "T36",
+      "title": "One Node and npm version for the team and CI",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T01"],
+      "critical": false,
+      "goal": "Stop `package-lock.json` from churning between machines. npm 10 and npm 11 below 11.11 drop its `libc` fields, so every install on such a machine rewrites it.",
+      "acceptance": [
+        "`package.json` `devEngines` requires Node 24+ and npm 11.11 or newer below 12, with `onFail: \"error\"`, so a wrong version stops `npm install`, `npm ci` and `npm run` with EBADDEVENGINES.",
+        "`engines.node` matches, CI runs on Node 24, and `scripts/setup.mjs` checks both versions up front with an install hint.",
+        "`package-lock.json` changes only in its `engines` entry: no dependency versions move.",
+        "README, CONTRIBUTING and PLAN §3 name the versions, and CONTRIBUTING has a troubleshooting row for EBADDEVENGINES.",
+        "A test fails if `devEngines`, `engines` or CI's Node version drift apart.",
+        "T36 is added to `scripts/backlog.json`.",
+        "`npm run verify` and CI pass."
+      ],
+      "refs": "PLAN §3, §10; CONTRIBUTING.md"
     }
   ]
 }

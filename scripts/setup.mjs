@@ -46,6 +46,7 @@ const installHint = {
   node: isWin
     ? "winget install OpenJS.NodeJS.LTS"
     : "install the LTS from https://nodejs.org  (or: brew install node)",
+  npm: `use the npm that comes with Node 24 or 26 (${isWin ? "winget install OpenJS.NodeJS.LTS" : "install the LTS from https://nodejs.org"}). If you upgraded npm yourself, run \`npm install -g npm@11\` from outside this folder.`,
   git: isWin
     ? "winget install Git.Git"
     : "xcode-select --install  (or brew install git)",
@@ -61,14 +62,30 @@ console.log("TeachBack setup\n===============");
 
 // 1. Prerequisites -----------------------------------------------------------
 section("1. Prerequisites");
-// Matches package.json "engines" (Vitest and jsdom need 22.13+ on the 22 line).
-const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
-if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 13))
+// Matches package.json "devEngines". Each npm version writes package-lock.json a little
+// differently, so the whole team uses the same range.
+const [nodeMajor] = process.versions.node.split(".").map(Number);
+if (nodeMajor < 24)
   die(
-    `Node ${process.versions.node} is too old (need 22.13+ or 24+).`,
+    `Node ${process.versions.node} is too old (need 24 or newer).`,
     installHint.node,
   );
 ok(`Node ${process.versions.node}`);
+
+// npm enforces devEngines too: on another version `npm install` and `npm run` stop with
+// EBADDEVENGINES. This check covers `node scripts/setup.mjs`, which npm never sees.
+const npmCheck = run("npm", ["--version"], { quiet: true });
+const npmVersion = (npmCheck.stdout || "").trim();
+// Plain releases only: npm's own devEngines check refuses prereleases such as 11.12.0-pre.0.
+const [, npmMajor, npmMinor] = (
+  /^(\d+)\.(\d+)\.\d+$/.exec(npmVersion) ?? []
+).map(Number);
+if (npmCheck.status !== 0 || npmMajor !== 11 || !(npmMinor >= 11))
+  die(
+    `${npmVersion ? `npm ${npmVersion}` : "This npm"} isn't the team's version (need npm 11.11 or newer, below 12).`,
+    installHint.npm,
+  );
+ok(`npm ${npmVersion}`);
 
 if (!succeeds("git", ["--version"]))
   die("Git is not installed.", installHint.git);
