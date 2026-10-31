@@ -59,15 +59,16 @@ function runSetup({ npm, npmStatus = npm === null ? 1 : 0, node }: Run) {
   mkdirSync(bin);
   if (npm !== undefined) {
     // POSIX: spawnSync finds `npm` on PATH. Windows: setup runs through cmd.exe, which finds npm.cmd.
+    // Like real npm, the stub answers only `--version` with a bare version (exit 2 otherwise).
     const out = npm ?? "";
     writeFileSync(
       path.join(bin, "npm"),
-      `#!/bin/sh\n${out ? `echo ${out}\n` : ""}exit ${npmStatus}\n`,
+      `#!/bin/sh\n[ "$1" = "--version" ] || exit 2\n${out ? `echo ${out}\n` : ""}exit ${npmStatus}\n`,
     );
     chmodSync(path.join(bin, "npm"), 0o755);
     writeFileSync(
       path.join(bin, "npm.cmd"),
-      `@echo off\r\n${out ? `echo ${out}\r\n` : ""}exit /b ${npmStatus}\r\n`,
+      `@echo off\r\nif not "%~1"=="--version" exit /b 2\r\n${out ? `echo ${out}\r\n` : ""}exit /b ${npmStatus}\r\n`,
     );
   }
   const nodeArgs: string[] = [];
@@ -115,11 +116,15 @@ describe(`setup.mjs Node check (devEngines: ${devEngines.runtime.version})`, () 
     },
   );
 
-  it(`accepts Node ${nodeFloor}.0.0`, () => {
-    const res = runSetup({ node: `${nodeFloor}.0.0`, npm: goodNpm });
-    expect(res.stdout).toContain(`✓ Node ${nodeFloor}.0.0`);
-    expect(res.stdout).toContain(`✓ npm ${goodNpm}`);
-  });
+  // The next LTS above the floor too: the range is open-ended, not "only this major".
+  it.each([`${nodeFloor}.0.0`, `${nodeFloor + 2}.0.0`])(
+    "accepts Node %s",
+    (node) => {
+      const res = runSetup({ node, npm: goodNpm });
+      expect(res.stdout).toContain(`✓ Node ${node}`);
+      expect(res.stdout).toContain(`✓ npm ${goodNpm}`);
+    },
+  );
 });
 
 describe(`setup.mjs npm check (devEngines: ${devEngines.packageManager.version})`, () => {

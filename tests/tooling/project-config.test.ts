@@ -110,7 +110,7 @@ describe("toolchain: one Node and npm for the team and CI", () => {
     for (const v of versions) expect(v).toBe("${{ env.NODE_VERSION }}");
   });
 
-  it("each job that runs npm sets up Node first; only jobs that install cache npm", () => {
+  it("each job that runs node or npm sets up Node first; only jobs that install cache npm", () => {
     // Jobs sit two spaces in under `jobs:`. Comments are dropped so they can't count as steps.
     const jobs = ci
       .slice(ci.indexOf("\njobs:\n"))
@@ -120,19 +120,21 @@ describe("toolchain: one Node and npm for the team and CI", () => {
         id: /^ {2}([a-z0-9_-]+):/.exec(block)?.[1] ?? "",
         code: block.replace(/^\s*#.*$/gm, ""),
       }));
-    const npmJobs = jobs.filter((j) => /\bnp[mx] \S/.test(j.code));
-    expect(npmJobs.map((j) => j.id)).toEqual([
+    // Without setup-node, a job gets the runner's preinstalled Node instead of NODE_VERSION.
+    const usesNode = /\b(?:node|np[mx]) \S/;
+    const nodeJobs = jobs.filter((j) => usesNode.test(j.code));
+    expect(nodeJobs.map((j) => j.id)).toEqual([
       "static",
       "test",
       "security",
       "build",
       "e2e",
     ]);
-    for (const { id, code } of npmJobs) {
+    for (const { id, code } of nodeJobs) {
       const setupAt = code.indexOf("uses: actions/setup-node@");
       expect(setupAt, `${id} sets up Node`).toBeGreaterThan(-1);
-      expect(setupAt, `${id} sets up Node before npm`).toBeLessThan(
-        code.search(/\bnp[mx] \S/),
+      expect(setupAt, `${id} sets up Node before using it`).toBeLessThan(
+        code.search(usesNode),
       );
       // The audit-only job turns setup-node's auto-cache off, so it can't save a near-empty cache
       // under the key the installing jobs use.
