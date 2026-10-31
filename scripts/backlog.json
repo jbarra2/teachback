@@ -712,6 +712,25 @@
         "Submit on Canvas before the deadline (repo URL + release link). Post a screenshot of the submission confirmation in the group chat."
       ],
       "refs": "PLAN §11"
+    },
+    {
+      "id": "T35",
+      "title": "Team onboarding: logins, CODEOWNERS and journal fields",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Fri 10/30",
+      "blockedBy": ["T01"],
+      "critical": false,
+      "goal": "Get the repo ready for the frontend and AI teammates: wire their logins into review and assignment, extend the journal format so it records what we asked the agent for and what we decided or dropped, and keep AI attribution out of git history.",
+      "acceptance": [
+        "`.github/team.json` and `.github/CODEOWNERS` use the teammates' GitHub logins, with no placeholders left. A test fails if a placeholder comes back.",
+        "Journal entries gain **Asked Claude for** and **Decided / dropped**, in both the `docs/JOURNAL.md` format and the `/finish-task` prompts.",
+        "`.claude/settings.json` sets `attribution.sessionUrl: false`, so sessions run through Remote Control add no session links.",
+        "Tests pin that commit and PR attribution stays empty, and that the commit-msg hook strips AI attribution lines and rejects messages that aren't Conventional Commits.",
+        "T35 is added to `scripts/backlog.json`.",
+        "`npm run verify` and CI pass."
+      ],
+      "refs": "CLAUDE.md rule 7; docs/JOURNAL.md; CONTRIBUTING.md"
     }
   ]
 }

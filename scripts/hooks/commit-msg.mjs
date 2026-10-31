@@ -11,7 +11,10 @@ while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
 writeFileSync(file, `${lines.join("\n")}\n`);
 
 const subject = lines.find((l) => l.trim() && !l.startsWith("#")) ?? "";
-if (/^(Merge|Revert|fixup!|squash!)/.test(subject)) process.exit(0);
+// Messages git writes itself (merges, reverts, autosquash), not any subject that starts with "Merge".
+const GIT_GENERATED =
+  /^(Merge (branch|branches|remote-tracking branch|pull request|commit|tag) |Revert "|fixup! |squash! )/;
+if (GIT_GENERATED.test(subject)) process.exit(0);
 
 const CONVENTIONAL =
   /^(feat|fix|refactor|perf|test|docs|chore|build|ci|style|revert)(\([a-z0-9./-]+\))?!?: \S.{0,99}$/;

@@ -2,17 +2,19 @@
 
 Each of us keeps a record of what we built and learned, one entry per task. Use it to study after the project, to write the README's Team section (T33), and as material for your resume and interviews.
 
+The journals are also the project's log of what changed as we went. Each issue records what we set out to build, and each entry records what you asked the agent for, what you decided, and what you dropped.
+
 - **Your file:** `docs/journal/<your-github-username>.md`. Only edit your own.
 - **When:** `/finish-task` adds the entry before it commits, so the entry ships in the same PR as the work.
-- **Public repo:** never put keys, `.env` values, passwords or personal details in a journal.
+- **Public repo:** never put keys, `.env` values, passwords or personal details (local file paths, email addresses, school or employer names) in a journal.
 
 ## The three ways to write an entry
 
-`/finish-task` fills in the facts (task, date, what you built, skills used) from the issue and your diff. Then it asks how you want to answer the two questions:
+`/finish-task` fills in the facts from the issue, your diff and this task's conversation: task, date, what you built, skills used, what you asked Claude for, and what you decided or dropped. You check them before the commit. Then it asks how you want to answer the two questions:
 
 | Option                       | What happens                                                                                                                               | Use it when            |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
-| **1. I'll write my answers** | Claude asks the two questions and saves your words as you wrote them.                                                                      | You have a few minutes |
+| **1. I'll write my answers** | Claude asks the two questions, saves your words as you wrote them, and shows you the whole entry to approve.                               | You have a few minutes |
 | **2. Draft it, I'll edit**   | Claude drafts both answers from this task's conversation (what went wrong, how it was fixed, the decisions you made). You edit or approve. | Most of the time       |
 | **3. Write it for me**       | Claude writes the whole entry and marks it `<!-- needs-review -->`, so you can find it and read it later.                                  | You're out of time     |
 
@@ -40,6 +42,13 @@ Each entry:
 **What I built:** One or two concrete sentences: the feature, the main files, how it fits the app.
 
 **Skills & tools:** Next.js App Router, React Server Components, Tailwind CSS, Vitest
+
+**Asked Claude for:** 1–2 plain sentences: what you asked for, including changes of direction mid-task. Summarize; don't paste prompts.
+
+**Decided / dropped:**
+
+- A choice you made, and why (for example, a library or an approach over another).
+- Anything you tried or planned and then dropped, and why.
 
 **Hardest part, and how I solved it:**
 2–4 sentences. The specific problem (an error, a bug, a design choice) and what fixed it.

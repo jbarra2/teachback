@@ -32,3 +32,29 @@ Proving the protections actually work, not just that tests pass. We broke each r
 
 **What I learned:**
 A passing test only counts as evidence if it fails when the code is wrong, and mutation testing is a cheap way to check that. Small details decide whether a security check holds: `\b` matches before a dot, Windows tools can write UTF-16, and Next serves `.js` route files, so lint bans have to cover every file type. I'd use the break-it-on-purpose approach again for any guard that protects secrets or data.
+
+## T35 · Team onboarding: logins, CODEOWNERS and journal fields (#37) · Oct 30, 2026
+
+<!-- needs-review -->
+
+**What I built:** The repo setup our teammates need before they start.
+
+- Their GitHub logins in `.github/team.json` and `CODEOWNERS`, which decide issue assignment and review requests. `CODEOWNERS` now also covers the lead-owned config.
+- Two new journal fields so these entries double as our project log.
+- Tests that keep AI attribution out of git history: the commit-msg hook's stripping and its Conventional Commits check, plus Claude Code's attribution settings.
+
+**Skills & tools:** GitHub CODEOWNERS, git hooks, Vitest, Claude Code settings, mutation testing
+
+**Asked Claude for:** Add the teammates' logins so I could invite them. I also asked it to make sure AI attribution never shows up in our git history, and to add the two journal fields we agreed on in T01.
+
+**Decided / dropped:**
+
+- Turned off Claude Code's session links (`sessionUrl: false`). Remote Control sessions would otherwise add one to commits and PRs.
+- Tightened the commit-msg hook so only messages git writes itself skip the format check. Before, any subject starting with "Merge" or "Revert" passed.
+- Kept the teammates' logins out of PR text as @mentions, so nobody got notified before the kickoff message.
+
+**Hardest part, and how I solved it:**
+Making the protections testable without depending on GitHub. The commit-msg hook had no tests at all, and the login check only caught leftover placeholders. A review pointed out that swapping two roles would still pass. I added tests that map every CODEOWNERS path to its track's owner, and checked each one by breaking it on purpose.
+
+**What I learned:**
+CODEOWNERS only works for people who already have write access, so the order is: invite, they accept, then assign issues. A guard like "skip validation for merge commits" needs to match exactly what git writes, or it quietly lets through messages that merely start the same way.
