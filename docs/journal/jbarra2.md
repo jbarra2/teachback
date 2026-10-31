@@ -58,3 +58,26 @@ Making the protections testable without depending on GitHub. The commit-msg hook
 
 **What I learned:**
 CODEOWNERS only works for people who already have write access, so the order is: invite, they accept, then assign issues. A guard like "skip validation for merge commits" needs to match exactly what git writes, or it quietly lets through messages that merely start the same way.
+
+## T36 · One Node and npm version for the team and CI (#39) · Oct 31, 2026
+
+<!-- needs-review -->
+
+**What I built:** A toolchain pin so every machine and CI write `package-lock.json` the same way. `devEngines` in `package.json` makes npm refuse Node below 24 or npm outside 11.11–11.x, CI moved from Node 22 to 24, and `scripts/setup.mjs` checks both versions up front with an install hint.
+
+**Skills & tools:** npm `devEngines`, GitHub Actions (`actions/setup-node`), Node.js, Vitest config tests, mutation testing
+
+**Asked Claude for:** How to answer a teammate's T04 questions (a `task` parameter on `generateJson`, lockfile noise from npm 10, and a new env var), then to standardize the team on Node 24 with npm 11 and ship the fix quickly so the teammate could keep working.
+
+**Decided / dropped:**
+
+- Pinned npm to 11.11 or newer, below 12, instead of "any npm 11": npm 10 and npm 11 below 11.11 drop the lockfile's `libc` fields, so the major version alone wasn't enough.
+- Left npm 12 out until it's tested.
+- Used `devEngines` with `onFail: "error"` so npm itself enforces the range, not just the setup script or the docs.
+- Dropped my first conclusion that the lockfile matched npm 12. It came from `--package-lock-only`, which adds entries on every npm 11; a real install with npm 11.11 left the file unchanged.
+
+**Hardest part, and how I solved it:**
+Working out which npm versions actually rewrite the lockfile. I regenerated a copy with about a dozen npm versions and compared the diffs, which showed the boundary at 11.11. The comparison method itself added noise, so I confirmed the result with a real install before trusting it.
+
+**What I learned:**
+The lockfile format depends on the npm minor version, not just the major, so a team needs a pinned range that the tool enforces itself. With `devEngines`, npm stops `install` and `run` with EBADDEVENGINES on a wrong version, so the check lives in one place instead of in every script.

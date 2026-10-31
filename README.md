@@ -4,7 +4,7 @@ Notes that teach you back: upload lecture notes, explain concepts in your own wo
 
 > In development. Submission: Nov 8, 2026. The final README is task T33.
 
-**Quick start:** install Node 22.13+ (or 24+), Git, the GitHub CLI and Docker Desktop. Then:
+**Quick start:** install Node 24 or 26 (with the npm 11 it comes with), Git, the GitHub CLI and Docker Desktop. Then:
 
 ```bash
 npm run setup      # or, in Claude Code: /setup
