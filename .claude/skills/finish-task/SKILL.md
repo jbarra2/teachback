@@ -13,16 +13,17 @@ Ship the task on the current branch.
    - My file is `docs/journal/<login>.md` (`gh api user --jq .login`). If it doesn't exist, create it with the header from `docs/JOURNAL.md`: my name (`gh api user --jq .name`; ask me if it's empty) and my role (the key in `.github/team.json` whose value is my login: `lead` → Lead, `ai` → AI, `frontend` → Frontend; ask me if I'm not listed).
    - If it already has an entry for `#<n>` (from an earlier run), show it and ask whether to keep it or redo it. Otherwise:
    - Fill in the facts yourself: heading `## Txx · <title> (#<n>) · <today, e.g. Oct 30, 2026>`, **What I built** and **Skills & tools**, from the issue, `git diff origin/main --stat` plus `git status` (the work isn't all committed yet), and the main files.
+   - Also fill in **Asked Claude for** (1–2 sentences: what I asked for in this task's conversation, including changes of direction; summarize, never paste prompts) and **Decided / dropped** (bullets: the main choices with their reasons, and anything tried or planned and then dropped, with why). Take these only from this conversation and the diff. If the conversation has little history (for example after `/clear`), ask me for a one-line **Asked Claude for** instead of guessing. The format is in `docs/JOURNAL.md`.
    - Ask me how to answer the two questions (multiple choice):
-     1. **I'll write my answers**: ask "What was the hardest part, and how did you solve it?" and "What did you learn?". Save my words as written; only fix obvious typos.
+     1. **I'll write my answers**: ask "What was the hardest part, and how did you solve it?" and "What did you learn?". Save my words as written; only fix obvious typos. Then show me the whole entry and wait for my OK.
      2. **Draft it, I'll edit**: draft both answers, show me the whole entry, apply my edits, and wait for my OK.
      3. **Write it for me**: write both answers, put `<!-- needs-review -->` on the line under the heading, and show me the entry. Don't wait; step 4 is my chance to change it.
-   - **Drafting rules (options 2 and 3):**
+   - **Drafting rules (everything you write in the entry, in every option):**
      - First person, my voice, plain and specific. 2–4 sentences per answer.
      - Base it on what actually happened in this conversation: the plan, errors and failed tests, how they were fixed, decisions I made or corrected. Use the diff and commits for the rest.
      - Never invent problems, lessons, numbers or outcomes. If this conversation has little history (for example after `/clear`), say less, and pick the trickiest decision visible in the diff as the "hardest part".
      - Describe the engineering problem and the fix. Prefer lessons I was involved in and could explain in an interview.
-     - Public repo: no keys, `.env` values, passwords, personal details, or quotes from private chats.
+     - Public repo: no keys, `.env` values, passwords, personal details (local file paths, email addresses, school or employer names), or quotes from private chats.
    - Append the entry at the end of the file.
 4. **Confirm:** show `git status` and a short summary of the changes. Ask: "Commit, sync with main, verify, push and open the PR?" Wait for yes.
 5. **Commit first:**

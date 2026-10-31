@@ -60,7 +60,7 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 
 ## Your work journal
 
-Everyone keeps `docs/journal/<your-github-username>.md`: one short entry per task with what you built, the hardest part and how you solved it, and what you learned. It's for studying later, the README's Team section, and your resume.
+Everyone keeps `docs/journal/<your-github-username>.md`: one short entry per task with what you built, what you asked Claude for, what you decided or dropped, the hardest part and how you solved it, and what you learned. It's for studying later, the README's Team section, and your resume, and it's also our project log of what changed as we went.
 
 You don't have to remember it. `/finish-task` adds the entry before it commits and asks how you want to answer the two questions:
 
