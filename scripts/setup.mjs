@@ -76,7 +76,10 @@ ok(`Node ${process.versions.node}`);
 // EBADDEVENGINES. This check covers `node scripts/setup.mjs`, which npm never sees.
 const npmCheck = run("npm", ["--version"], { quiet: true });
 const npmVersion = (npmCheck.stdout || "").trim();
-const [npmMajor, npmMinor] = npmVersion.split(".").map(Number);
+// Plain releases only: npm's own devEngines check refuses prereleases such as 11.12.0-pre.0.
+const [, npmMajor, npmMinor] = (
+  /^(\d+)\.(\d+)\.\d+$/.exec(npmVersion) ?? []
+).map(Number);
 if (npmCheck.status !== 0 || npmMajor !== 11 || !(npmMinor >= 11))
   die(
     `${npmVersion ? `npm ${npmVersion}` : "This npm"} isn't the team's version (need npm 11.11 or newer, below 12).`,

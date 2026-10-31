@@ -97,8 +97,11 @@ describe("toolchain: one Node and npm for the team and CI", () => {
 
   it("every CI job sets up Node 24 from one NODE_VERSION", () => {
     expect(ci).toMatch(/^ {2}NODE_VERSION: "24"$/m);
-    // Exactly one definition: a job-level `env:` override would win over the workflow's.
+    // Exactly one definition: a job-level `env:` override would win over the workflow's, and so
+    // would a step writing it to $GITHUB_ENV or a job running in a container.
     expect(ci.match(/NODE_VERSION:/g) ?? []).toHaveLength(1);
+    expect(ci).not.toMatch(/GITHUB_ENV[^\n]*NODE_VERSION|NODE_VERSION=/);
+    expect(ci).not.toMatch(/^\s+container:/m);
     const versions = [...ci.matchAll(/node-version:\s*"([^"]*)"/g)].map(
       (m) => m[1],
     );
@@ -107,12 +110,36 @@ describe("toolchain: one Node and npm for the team and CI", () => {
     for (const v of versions) expect(v).toBe("${{ env.NODE_VERSION }}");
   });
 
-  it("every setup-node step either caches npm or turns the auto-cache off", () => {
-    const cacheChoices = (
-      ci.match(/cache: npm\b|package-manager-cache: false\b/g) ?? []
-    ).length;
-    expect(setupNodeSteps).toBeGreaterThan(0);
-    expect(cacheChoices).toBe(setupNodeSteps);
+  it("each job that runs npm sets up Node first; only jobs that install cache npm", () => {
+    // Jobs sit two spaces in under `jobs:`. Comments are dropped so they can't count as steps.
+    const jobs = ci
+      .slice(ci.indexOf("\njobs:\n"))
+      .split(/\n(?= {2}[a-z0-9_-]+:\n)/)
+      .slice(1)
+      .map((block) => ({
+        id: /^ {2}([a-z0-9_-]+):/.exec(block)?.[1] ?? "",
+        code: block.replace(/^\s*#.*$/gm, ""),
+      }));
+    const npmJobs = jobs.filter((j) => /\bnp[mx] \S/.test(j.code));
+    expect(npmJobs.map((j) => j.id)).toEqual([
+      "static",
+      "test",
+      "security",
+      "build",
+      "e2e",
+    ]);
+    for (const { id, code } of npmJobs) {
+      const setupAt = code.indexOf("uses: actions/setup-node@");
+      expect(setupAt, `${id} sets up Node`).toBeGreaterThan(-1);
+      expect(setupAt, `${id} sets up Node before npm`).toBeLessThan(
+        code.search(/\bnp[mx] \S/),
+      );
+      // The audit-only job turns setup-node's auto-cache off, so it can't save a near-empty cache
+      // under the key the installing jobs use.
+      const installs = /\bnpm (ci|install)\b/.test(code);
+      expect(/\bcache: npm\b/.test(code), `${id} cache: npm`).toBe(installs);
+      expect(code.includes("package-manager-cache: false"), id).toBe(!installs);
+    }
   });
 });
 
