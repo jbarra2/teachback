@@ -346,11 +346,11 @@ Postman users can import `openapi.yaml` directly.
 
 **Provider** (`src/lib/ai/provider.ts`):
 
-- `generateJson(schema, { system, user }, { model: "fast" | "smart" })` using `@anthropic-ai/sdk` structured outputs (`client.messages.parse` + the SDK's Zod helper; check the installed README).
+- `generateJson(schema, { system, user }, { model: "fast" | "smart", task: "extractConcepts" | "generateQuestion" | "evaluateAnswer" })` using `@anthropic-ai/sdk` structured outputs (`client.messages.parse` + the SDK's Zod helper; check the installed README).
 - Structured outputs don't enforce min/max/length constraints, so zod validates afterwards.
 - `AI_MODEL_FAST` (default `claude-sonnet-5-5`): extraction and questions. `AI_MODEL_SMART` (default `claude-opus-5-5`): grading. Opus is slower and costs more per call, so T27 measures its agreement and latency against Sonnet; if Sonnet grades nearly as well and is clearly faster, switch `AI_MODEL_SMART` (it's only an env var).
 - 1 retry, 60 s timeout, typed `AiError` → routes return 502 AI_UNAVAILABLE.
-- `AI_PROVIDER=fake`: deterministic fixtures plus failure modes (`timeout`, `malformed`, `rate_limited`, `server_error`, `fabricated_evidence`).
+- `AI_PROVIDER=fake`: deterministic fixtures plus failure modes (`timeout`, `malformed`, `rate_limited`, `server_error`, `fabricated_evidence`). `task` picks the fixture (the real provider ignores it). Tests choose a failure with `setFakeFailure()`, and a running app with `AI_FAKE_FAILURE`.
 
 **Prompt rules (prompt-injection resistance):**
 

@@ -772,6 +772,23 @@
         "`npm run verify` and CI pass."
       ],
       "refs": "PLAN §11, §12; CONTRIBUTING.md"
+    },
+    {
+      "id": "T38",
+      "title": "Fix main: pin ai:ping in the reviewed scripts, document task in generateJson",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sun 11/1",
+      "blockedBy": ["T04"],
+      "critical": true,
+      "goal": "T04 (#42) and T37 (#43) merged in quick succession: T04 added the `ai:ping` script, and T37's test pins the exact script list, so CI on main fails. Bring the two in line, and record T04's approved `task` option in PLAN §8.",
+      "acceptance": [
+        "`tests/tooling/project-config.test.ts` lists `ai:ping` (PLAN §10 plans it for T04) in the reviewed scripts.",
+        "PLAN §8 shows `generateJson(schema, { system, user }, { model, task })` with the three tasks.",
+        "T38 is added to `scripts/backlog.json`.",
+        "`npm run verify` and CI pass, and CI on main is green again after the merge."
+      ],
+      "refs": "PLAN §8, §10"
     }
   ]
 }
