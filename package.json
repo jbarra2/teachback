@@ -33,9 +33,11 @@
     "audit": "npm audit --omit=dev --audit-level=high",
     "db:up": "docker compose up -d --wait db db-test",
     "db:down": "docker compose down",
-    "prepare": "node scripts/install-hooks.mjs"
+    "prepare": "node scripts/install-hooks.mjs",
+    "ai:ping": "tsx --env-file-if-exists=.env scripts/ai-ping.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
