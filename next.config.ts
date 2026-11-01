@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   // `next dev` would otherwise write AGENTS.md into the repo when it detects an AI agent.
   // CLAUDE.md is the one place for agent instructions.
   agentRules: false,
+  // GET /api/openapi reads the contract from disk, so serverless builds must ship the file.
+  outputFileTracingIncludes: {
+    "/api/openapi": ["./openapi/openapi.yaml"],
+  },
   experimental: {
     // The dev-only MCP endpoint (/_next/mcp) answers anyone who can reach the dev server,
     // including the whole Wi-Fi when it runs with -H 0.0.0.0 for phone testing.

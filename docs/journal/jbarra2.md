@@ -104,3 +104,26 @@ Each review round found a new way around the newest guard: the lockfile check co
 
 **What I learned:**
 Without a human approval, every protection has to be something a machine checks, and CI runs whatever the PR says, so the check must not depend on code the PR can change. npm installs whatever a lockfile's `resolved` URL points at as long as the hash matches, which is why a lockfile needs its own check.
+
+## T03 · API contract: openapi.yaml + Scalar docs + zod schemas + client types (#3) · Nov 1, 2026
+
+**What I built:** The API contract every other track builds against: `openapi/openapi.yaml` with all 13 operations, the PLAN §7 limits, error codes and examples; zod request schemas in `src/lib/schemas/`; client types generated from the spec (`npm run api:types`, with a `--check` mode for CI); and `/api/openapi` and `/api/docs` (Scalar), which are off unless `API_DOCS_ENABLED` is set. Contract tests read PLAN and TESTING and fail if the spec, the schemas or the limits drift from them.
+
+**Skills & tools:** OpenAPI 3.1 and JSON Schema, Redocly CLI, openapi-typescript, zod 4, Scalar, Subresource Integrity, Next.js route handlers, Vitest, mutation testing, security review
+
+**Asked Claude for:** To build the contract in line with PLAN §7 and the T04 provider so the frontend and AI tracks could start, with a plan and tests first and screenshots of the docs page while I was away from my laptop. At the end I asked for tests to be written before the code from now on, since the reviews kept finding missing ones.
+
+**Decided / dropped:**
+
+- Pinned Scalar's browser script to one release with an integrity hash, and turned off its telemetry, AI agent, MCP and developer toolbar, so the docs page loads nothing unpinned.
+- Kept the docs routes off by default: they're public by design but only useful in development.
+- Typed the upload's file field with `contentMediaType` instead of `format: binary`, so T07's strict validator compiles every schema, and generated it as `Blob` in the client types.
+- Counted text limits in characters (code points), trimmed, and rejected NUL and broken surrogate pairs. An empty form field counts as not sent, because a browser sends an empty file part when no file is chosen.
+- Updated PLAN §7 and §8 where the contract needed it: an optional `error` on documents, at least one source per question, and non-empty evidence quotes with a label the server adds.
+- Dropped a `oneOf` on the upload body (the strict validator rejects it) for zod checks plus a description, and dropped `String#isWellFormed` for a regex because older browsers lack it.
+
+**Hardest part, and how I solved it:**
+Making the docs page safe to serve from our own origin. Scalar loads its browser script from a CDN, takes the latest release by default, and has no integrity option. I pinned one release, added its SRI hash to the page, and made the route return a 500 unless that bundle is the only outside URL on the page, after reviews showed other ways a script could load unchecked (a protocol-relative URL, a CSS `url()`, a dynamic import). A real-browser test confirmed that with the hash one character off, the browser refuses the script.
+
+**What I learned:**
+Tests that read their cases from the spec itself (every limit, error code and example) catch drift between the spec, the plan and the zod schemas that hand-picked cases miss. Each review round still found a missing test, so I now write the tests before the code and let the reviews look for what's left. I also learned that a tool can pass and still crash: Redocly's update check aborted on Windows after a clean lint, and turning it off in a wrapper script fixed it.
