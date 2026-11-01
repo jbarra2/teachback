@@ -145,22 +145,34 @@ try {
 } catch (error) {
   // Not "move it away" for a read-only .env: a new one would lose the keys in this one.
   const readOnly = ["EACCES", "EPERM", "EROFS"].includes(error.code);
+  const makeWritable = isWin
+    ? "untick Read-only in its Properties"
+    : 'run `chmod u+w .env`, or `sudo chown "$(id -un)" .env` if `ls -l .env` shows it isn\'t yours';
   die(
     `Setup can't open or create .env (${error.code ?? error.message}).`,
     readOnly
-      ? "Setup needs to write .env: make it (and this folder) writable, with `chmod u+w .env` or by unticking Read-only in its Properties, then re-run."
+      ? `Setup needs to write .env: make it (and this folder) writable (${makeWritable}), then re-run.`
       : error.code === "EISDIR"
         ? moveAway
         : "Check that you can write to this folder and to .env, then re-run.",
   );
 }
 // Windows opens a folder too, and a link can lead to a device. fstat checks the open handle itself.
-const envStat = fstatSync(fd);
+let envStat;
+let before;
+try {
+  envStat = fstatSync(fd);
+  if (envStat.isFile()) before = readFileSync(fd, "utf8");
+} catch (error) {
+  die(
+    `Setup can't read .env (${error.code ?? error.message}).`,
+    "Close any program that has .env open or locked, then re-run.",
+  );
+}
 if (!envStat.isFile()) {
   closeSync(fd);
   die(".env isn't a regular file.", moveAway);
 }
-const before = readFileSync(fd, "utf8");
 let env = before === "" ? example : before;
 if (before === "") ok("Created .env from .env.example");
 else ok(".env already exists (not overwritten)");

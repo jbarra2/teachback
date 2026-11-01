@@ -89,9 +89,36 @@ if (fault === "chmod-refused")
   };
 // A disk that keeps no Unix permissions (WSL's /mnt/c): chmod succeeds and changes nothing.
 if (fault === "chmod-ignored") fs.fchmodSync = () => {};
+if (fault === "truncate-fails")
+  fs.ftruncateSync = () => {
+    throw Object.assign(new Error("EIO: i/o error, ftruncate"), { code: "EIO" });
+  };
+// A disk error, or on Windows another program holding a lock on part of the file.
+const readFileSync = fs.readFileSync;
+if (fault === "read-fails")
+  fs.readFileSync = (file, ...rest) => {
+    if (typeof file === "number")
+      throw Object.assign(new Error("EIO: i/o error, read"), { code: "EIO" });
+    return readFileSync(file, ...rest);
+  };
+// A read-only file system (a mounted image, a locked-down container).
+const openSync = fs.openSync;
+if (fault === "read-only-disk")
+  fs.openSync = (file, ...rest) => {
+    if (file === ".env")
+      throw Object.assign(new Error("EROFS: read-only file system, open '.env'"), { code: "EROFS" });
+    return openSync(file, ...rest);
+  };
 syncBuiltinESMExports();
 `;
-type Fault = "short-writes" | "disk-full" | "chmod-refused" | "chmod-ignored";
+type Fault =
+  | "short-writes"
+  | "disk-full"
+  | "chmod-refused"
+  | "chmod-ignored"
+  | "truncate-fails"
+  | "read-only-disk"
+  | "read-fails";
 
 function runSetup(dir: string, fault?: Fault) {
   // Windows keeps the variable as `Path`; drop every spelling so only the stub folder is searched.
@@ -177,7 +204,11 @@ describe("setup.mjs creates .env when there is none", () => {
       const { dir, env } = project();
       writeFileSync(env, "");
       chmodSync(env, 0o644);
-      expect(runSetup(dir).status).toBe(0);
+      const res = runSetup(dir);
+      expect(res.status).toBe(0);
+      // Reported as created, like a new file: the mode fix is part of that.
+      expect(res.stdout).toContain("✓ Created .env from .env.example");
+      expect(res.stdout).not.toContain("Made .env readable");
       expect(statSync(env).mode & 0o777).toBe(0o600);
     },
   );
@@ -199,6 +230,19 @@ describe("setup.mjs creates .env when there is none", () => {
     () => {
       const { dir, env } = project();
       expect(runSetup(dir).status).toBe(0);
+      expect(statSync(env).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  // Private from the moment it's created, not only after the later chmod: with chmod switched
+  // off, a .env created any wider would stay wide (and setup would warn).
+  it.skipIf(process.platform === "win32")(
+    "creates .env as 0600 in the first place",
+    () => {
+      const { dir, env } = project();
+      const res = runSetup(dir, "chmod-ignored");
+      expect(res.status).toBe(0);
+      expect(res.stdout).not.toContain("Unix permissions");
       expect(statSync(env).mode & 0o777).toBe(0o600);
     },
   );
@@ -260,18 +304,21 @@ describe("setup.mjs updates an existing .env without overwriting a value", () =>
     },
   );
 
-  it("adds a secret to a .env that has no secret line", () => {
+  it("adds a secret to a .env that has no secret line, and keeps the rest", () => {
     const { dir, env } = project();
-    writeFileSync(env, complete.replace(/^BETTER_AUTH_SECRET=.*\n/m, ""));
+    const withoutSecret = complete.replace(/^BETTER_AUTH_SECRET=.*\n/m, "");
+    writeFileSync(env, withoutSecret);
     const res = runSetup(dir);
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("✓ Generated BETTER_AUTH_SECRET");
+    expect(res.stdout).not.toMatch(/Added/);
     const written = readFileSync(env, "utf8");
-    expect(written.match(/^BETTER_AUTH_SECRET=/gm)).toHaveLength(1);
-    expect(secretOf(written)).toMatch(GENERATED);
-    expect(written).not.toContain("replace-me");
-    for (const line of example.match(/^[A-Z0-9_]+=/gm) ?? [])
-      expect(written).toMatch(new RegExp(`^${line}`, "m"));
+    const secret = secretOf(written);
+    expect(secret).toMatch(GENERATED);
+    // Exactly the old file plus the new line: every value the developer set is still there.
+    expect(written).toBe(
+      `${withoutSecret.trimEnd()}\nBETTER_AUTH_SECRET=${secret}\n`,
+    );
   });
 
   it("replaces a placeholder secret and keeps every other value", () => {
@@ -412,6 +459,59 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
     expect(readFileSync(env, "utf8")).toBe(placeholder);
   });
 
+  it("stops with a message when cutting off the old text fails", () => {
+    const { dir, env } = project();
+    const padded = complete.replace(
+      SECRET_LINE,
+      `BETTER_AUTH_SECRET=replace-me${" ".repeat(60)}`,
+    );
+    writeFileSync(env, padded);
+    const res = runSetup(dir, "truncate-fails");
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("✖ Setup couldn't write .env (EIO).");
+    expect(res.stderr).not.toMatch(/^\s+at /m);
+  });
+
+  it("stops with a message when .env can't be read", () => {
+    const { dir, env } = project();
+    writeFileSync(env, complete);
+    const res = runSetup(dir, "read-fails");
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("✖ Setup can't read .env (EIO).");
+    expect(res.stderr).not.toMatch(/^\s+at /m);
+    expect(readFileSync(env, "utf8")).toBe(complete);
+  });
+
+  it("asks for a writable .env on a read-only disk", () => {
+    const { dir, env } = project();
+    writeFileSync(env, complete);
+    const res = runSetup(dir, "read-only-disk");
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("✖ Setup can't open or create .env (EROFS).");
+    expect(res.stderr).toContain(
+      "How to fix: Setup needs to write .env: make it (and this folder) writable",
+    );
+    expect(readFileSync(env, "utf8")).toBe(complete);
+  });
+
+  // Any other open error (here a link that points at itself): a general hint, not "move it away".
+  it.skipIf(process.platform === "win32")(
+    "gives a general hint for any other reason .env can't be opened",
+    () => {
+      const { dir, env } = project();
+      symlinkSync(".env", env);
+      const res = runSetup(dir);
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(
+        "✖ Setup can't open or create .env (ELOOP).",
+      );
+      expect(res.stderr).toContain(
+        "How to fix: Check that you can write to this folder and to .env, then re-run.",
+      );
+      expect(res.stderr).not.toMatch(/^\s+at /m);
+    },
+  );
+
   // fchmod fails on a file someone else owns: the secret must not go into it.
   it.skipIf(process.platform === "win32")(
     "stops before writing when .env can't be made private",
@@ -469,6 +569,12 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
         // Make it writable, not "move it away": a new .env would lose the API key in this one.
         expect(res.stderr).toContain(
           "How to fix: Setup needs to write .env: make it (and this folder) writable",
+        );
+        // Each platform's own way, including a .env an earlier `sudo` run left owned by root.
+        expect(res.stderr).toContain(
+          process.platform === "win32"
+            ? "untick Read-only in its Properties"
+            : '`sudo chown "$(id -un)" .env` if `ls -l .env` shows it isn\'t yours',
         );
         expect(res.stderr).not.toMatch(/^\s+at /m);
         expect(readFileSync(env, "utf8")).toBe(placeholder);
