@@ -127,3 +127,25 @@ Making the docs page safe to serve from our own origin. Scalar loads its browser
 
 **What I learned:**
 Tests that read their cases from the spec itself (every limit, error code and example) catch drift between the spec, the plan and the zod schemas that hand-picked cases miss. Each review round still found a missing test, so I now write the tests before the code and let the reviews look for what's left. I also learned that a tool can pass and still crash: Redocly's update check aborted on Windows after a clean lint, and turning it off in a wrapper script fixed it.
+
+## T39 · Fix code scanning alerts: pin gitleaks-action, create .env in one step (#47) · Nov 1, 2026
+
+**What I built:** The fix for the three open CodeQL alerts. CI now pins `gitleaks/gitleaks-action` to the v3.0.0 commit SHA, and a test fails if any action from outside GitHub isn't pinned to a full SHA. `scripts/setup.mjs` opens `.env` once and does every read, chmod and write through that handle, so nothing can swap the file between a check and a write. A new or older `.env` ends up readable by its owner only on macOS and Linux, and each failure (a folder or device at `.env`, a read-only file, a full disk, a refused chmod) stops setup with a clear message. `tests/tooling/setup-env.test.ts` runs a copy of the real script with stub commands and a preload that makes file calls fail on purpose.
+
+**Skills & tools:** GitHub Actions, CodeQL (`js/file-system-race`, `actions/unpinned-tag`), Node file descriptors and open flags, POSIX file modes, Vitest, mutation testing, Docker for Linux test runs, security review
+
+**Asked Claude for:** The small PR for the three code scanning alerts once T03 merged, with the tests written before the code. I chose v3.0.0 of the action over the v2.3.9 that `@v2` pointed to, and chose to keep a read-only `.env` as a hard stop.
+
+**Decided / dropped:**
+
+- Pinned v3.0.0 rather than v2.3.9: same inputs, but built for Node 24. I checked the SHA is the commit the upstream tag points to, not a commit from a fork.
+- Pinned only third-party actions. GitHub's own `actions/*` stay on version tags, which CodeQL trusts.
+- Dropped my first fix (create with `wx`, otherwise open with `r+`). A review of CodeQL's query source showed that two opens of one path count as a check and a use, so it would have raised a new alert. One `O_RDWR | O_CREAT` open replaced it, and an empty `.env` now counts as new.
+- A refused chmod stops setup instead of warning, so the secret never goes into a file someone else owns. A chmod the disk ignores (WSL's `/mnt/c`) only warns.
+- Kept a complete read-only `.env` as a stop with a "make it writable" hint, because letting it pass needs a second open of `.env`.
+
+**Hardest part, and how I solved it:**
+CodeQL kept flagging code where I didn't expect it. My first fix still opened `.env` twice, and once that was gone, the PR's scan flagged a stat followed by a read in a test file. I fixed both by naming `.env` in exactly one open call and doing everything else through the file handle, added a test that pins that, and confirmed it with the PR's CodeQL run: "No new alerts".
+
+**What I learned:**
+Static analysis rules match code patterns, so the fix that satisfies them is a structural one (one handle, no second lookup of the path), and test files count too. Some guarantees only show on one platform: Windows ignores Unix file modes and even opens folders, so I ran the Linux-only tests and mutations in a throwaway Docker container as a normal user instead of trusting a skipped test.
