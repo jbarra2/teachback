@@ -19,6 +19,17 @@ describe("home page", () => {
     ).toBeInTheDocument();
   });
 
+  it("links to the courses and to log in", () => {
+    render(<Home />);
+    expect(
+      screen.getByRole("link", { name: "Go to my courses" }),
+    ).toHaveAttribute("href", "/courses");
+    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute(
+      "href",
+      "/login",
+    );
+  });
+
   // vitest.setup.ts unmounts after each test; without it this test would see two headings.
   // It relies on the test above having rendered, so it refuses to pass if run alone or shuffled.
   it("starts each test with an empty DOM", () => {
