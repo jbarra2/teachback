@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { load } from "js-yaml";
 import { describe, expect, it } from "vitest";
 import nextConfig from "../../next.config";
 
@@ -44,6 +45,9 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
   it("has exactly the reviewed scripts", () => {
     expect(Object.keys(scripts).sort()).toEqual([
       "ai:ping",
+      "api:lint",
+      "api:types",
+      "api:types:check",
       "audit",
       "build",
       "check",
@@ -65,6 +69,16 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
 
   it("audit fails on high and critical production advisories", () => {
     expect(scripts.audit).toBe("npm audit --omit=dev --audit-level=high");
+  });
+
+  // CI and verify run these (--if-present in ci.yml; the list above keeps them present).
+  // tests/tooling/api-scripts.test.ts tests what the scripts do.
+  it("api:lint, api:types and api:types:check run the reviewed contract scripts", () => {
+    expect(scripts["api:lint"]).toBe("node scripts/api-lint.mjs");
+    expect(scripts["api:types"]).toBe("node scripts/api-types.mjs");
+    expect(scripts["api:types:check"]).toBe(
+      "node scripts/api-types.mjs --check",
+    );
   });
 
   it.each(["dev", "start"])(
@@ -633,5 +647,36 @@ describe("next.config.ts", () => {
 
   it("leaves cacheComponents off (PLAN §3)", () => {
     expect(nextConfig.cacheComponents).not.toBe(true);
+  });
+
+  it("ships openapi.yaml with GET /api/openapi, which reads it at runtime", () => {
+    expect(nextConfig.outputFileTracingIncludes).toEqual({
+      "/api/openapi": ["./openapi/openapi.yaml"],
+    });
+  });
+});
+
+describe("redocly.yaml (npm run api:lint)", () => {
+  // Turning a rule off weakens the contract lint with no other test noticing.
+  it("makes every recommended rule an error, with only the reviewed exceptions, and no telemetry", () => {
+    const settings = load(
+      readFileSync(path.join(root, "redocly.yaml"), "utf8"),
+    ) as unknown;
+    expect(settings).toEqual({
+      extends: ["recommended-strict"],
+      rules: {
+        "info-license": "off",
+        "info-license-strict": "off",
+        "operation-4xx-response": "off",
+      },
+      telemetry: "off",
+    });
+    // Redocly reads other config files too; this is the only one.
+    for (const other of [
+      ".redocly.yaml",
+      "redocly.yml",
+      ".redocly.lint-ignore.yaml",
+    ])
+      expect(readdirSync(root), other).not.toContain(other);
   });
 });

@@ -1,0 +1,973 @@
+openapi: 3.1.0
+info:
+  title: TeachBack API
+  version: 0.1.0
+  summary: Notes, concepts, practice questions and grounded feedback for one signed-in student.
+  description: |
+    The contract that the frontend, the route handlers and the tests all build against
+    (docs/PLAN.md §7). This file is the source of truth: change it first, then run
+    `npm run api:lint`, `npm run api:types` and update `src/lib/schemas/`.
+
+    **Session.** Every operation needs the Better Auth session cookie unless it says
+    otherwise. Without one the answer is 401. Another user's resource is a 404, never a 403.
+
+    **Cross-site requests.** A POST whose `Origin` header isn't this app's origin, or that
+    has `Sec-Fetch-Site: cross-site`, gets 403 FORBIDDEN_ORIGIN.
+
+    **Limits** (enforced on the server, mirrored in the UI):
+
+    | Field | Limit |
+    | --- | --- |
+    | Course `name` | 1–120 characters |
+    | Document `title` | 1–200 characters |
+    | `answer` | 1–4000 characters |
+    | Upload | the whole request at most 4 MB (`MAX_UPLOAD_MB`) |
+    | Note text (pasted or extracted) | at most 200,000 characters (`MAX_NOTE_CHARS`) |
+    | JSON body | at most 64 KB |
+    | Ids | cuid (`^c[a-z0-9]{24}$`) |
+    | Unknown fields | rejected |
+
+    Text fields are trimmed before they are measured and stored, must contain a character
+    other than whitespace, and may not contain NUL or unpaired surrogates. Lengths count
+    characters (Unicode code points), as PostgreSQL does.
+
+    **Errors** all have the shape `{ "error": { "code", "message", "details"? } }`. Messages
+    are safe to show to the user. A 500 never carries internal details; quote its
+    `x-request-id` header when reporting it.
+servers:
+  - url: /
+    description: The app that serves this document
+security:
+  - sessionCookie: []
+tags:
+  - name: health
+    description: Liveness and database status.
+  - name: docs
+    description: This document and its interactive reference. Both exist only when `API_DOCS_ENABLED=true`.
+  - name: courses
+    description: The signed-in student's courses and what they contain.
+  - name: documents
+    description: Uploading notes and following their processing.
+  - name: practice
+    description: Questions about a concept, and feedback on an answer.
+  - name: progress
+    description: The concept map and the next concept to practise.
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Report whether the app and its database are up
+      description: Public. Reports no versions or other internals.
+      security: []
+      responses:
+        "200":
+          description: The app and its database are up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: ok, db: up }
+        "503":
+          description: The app is up but can't reach its database.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+              example: { status: error, db: down }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/openapi:
+    get:
+      operationId: getOpenApiDocument
+      tags: [docs]
+      summary: Download this OpenAPI document
+      description: Public. Serves `openapi/openapi.yaml` unchanged. 404 unless `API_DOCS_ENABLED=true`.
+      security: []
+      responses:
+        "200":
+          description: This document, as YAML.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/docs:
+    get:
+      operationId: getApiReference
+      tags: [docs]
+      summary: Browse this document as an interactive API reference
+      description: Public. Renders this document with Scalar. 404 unless `API_DOCS_ENABLED=true`.
+      security: []
+      responses:
+        "200":
+          description: An HTML page that loads the Scalar API reference.
+          content:
+            text/html:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/courses:
+    get:
+      operationId: listCourses
+      tags: [courses]
+      summary: List my courses
+      description: Newest first.
+      responses:
+        "200":
+          description: The signed-in student's courses.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Course" }
+              example:
+                - id: ccourse000000000000000002
+                  name: Organic Chemistry
+                  createdAt: "2026-11-02T18:30:00.000Z"
+                - id: ccourse000000000000000001
+                  name: Biology 101
+                  createdAt: "2026-11-01T09:15:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "500": { $ref: "#/components/responses/Internal" }
+    post:
+      operationId: createCourse
+      tags: [courses]
+      summary: Create a course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCourseRequest" }
+            examples:
+              simple:
+                summary: A course name
+                value: { name: Biology 101 }
+              withSpaces:
+                summary: Surrounding whitespace is trimmed
+                value: { name: "  Organic Chemistry  " }
+      responses:
+        "201":
+          description: The new course.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Course" }
+              example:
+                id: ccourse000000000000000001
+                name: Biology 101
+                createdAt: "2026-11-01T09:15:00.000Z"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/courses/{id}:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourse
+      tags: [courses]
+      summary: Get a course and its documents
+      description: Documents newest first.
+      responses:
+        "200":
+          description: The course.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseDetail" }
+              example:
+                id: ccourse000000000000000001
+                name: Biology 101
+                createdAt: "2026-11-01T09:15:00.000Z"
+                documents:
+                  - id: cdocument0000000000000003
+                    title: Week 3 - Scanned handout
+                    status: FAILED
+                    error: We couldn't read any text in that file.
+                    createdAt: "2026-11-03T08:45:00.000Z"
+                  - id: cdocument0000000000000002
+                    title: Week 2 - Cell membranes
+                    status: PROCESSING
+                    createdAt: "2026-11-02T10:00:00.000Z"
+                  - id: cdocument0000000000000001
+                    title: Week 1 - Cells
+                    status: READY
+                    createdAt: "2026-11-01T09:20:00.000Z"
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/courses/{id}/concepts:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: listCourseConcepts
+      tags: [courses]
+      summary: List a course's concepts with my mastery
+      description: >-
+        Sorted by name. A concept I haven't answered yet is PRACTICE with score 0 and 0 attempts.
+      responses:
+        "200":
+          description: The course's concepts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CourseConcept" }
+              example:
+                - id: cconcept00000000000000001
+                  name: Cell membrane
+                  summary: A lipid bilayer that controls what enters and leaves the cell.
+                  state: REVIEW
+                  score: 0.5
+                  attempts: 1
+                - id: cconcept00000000000000002
+                  name: Mitochondria
+                  summary: Organelles that produce most of the cell's ATP.
+                  state: PRACTICE
+                  score: 0
+                  attempts: 0
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/courses/{id}/map:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getCourseMap
+      tags: [progress]
+      summary: Get a course's concept map
+      description: Every concept in the course as a node, and how the concepts relate as edges.
+      responses:
+        "200":
+          description: The concept map.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CourseMap" }
+              example:
+                nodes:
+                  - id: cconcept00000000000000001
+                    name: Cell membrane
+                    state: REVIEW
+                    score: 0.5
+                  - id: cconcept00000000000000002
+                    name: Mitochondria
+                    state: PRACTICE
+                    score: 0
+                edges:
+                  - from: cconcept00000000000000001
+                    to: cconcept00000000000000002
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/courses/{id}/next-concept:
+    parameters:
+      - $ref: "#/components/parameters/CourseId"
+    get:
+      operationId: getNextConcept
+      tags: [progress]
+      summary: Pick the concept I should practise next
+      description: >-
+        PRACTICE before REVIEW before MASTERED; within a state, the lowest score first, then
+        the one seen longest ago (unseen first). Skips the concept of my most recent answer in
+        this course unless it is the only one. `null` when the course has no concepts yet.
+      responses:
+        "200":
+          description: The next concept, or `null`.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/NextConcept"
+                  - type: "null"
+              examples:
+                concept:
+                  summary: A concept to practise
+                  value:
+                    conceptId: cconcept00000000000000002
+                    name: Mitochondria
+                    state: PRACTICE
+                none:
+                  summary: The course has no concepts yet
+                  value: null
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/documents:
+    post:
+      operationId: uploadDocument
+      tags: [documents]
+      summary: Upload notes to a course
+      description: >-
+        Send exactly one of `file` (a .txt, .md or text-based .pdf) or `text`. The whole request
+        may be at most 4 MB (`MAX_UPLOAD_MB`): one with no `Content-Length`, or over the limit,
+        gets 413 before the body is read. Processing runs after the response: poll
+        `GET /api/documents/{id}` until the status is READY or FAILED.
+      x-rate-limit: upload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/UploadDocumentRequest" }
+            examples:
+              pastedText:
+                summary: Pasted text
+                value:
+                  courseId: ccourse000000000000000001
+                  title: Week 1 - Cells
+                  text: Cells are the basic unit of life. The cell membrane controls what enters and leaves.
+      responses:
+        "202":
+          description: Saved and queued for processing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentAccepted" }
+              example: { id: cdocument0000000000000001, status: QUEUED }
+        "400": { $ref: "#/components/responses/UploadRejected" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/UnreadableFile" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/documents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      operationId: getDocument
+      tags: [documents]
+      summary: Check a document's processing status
+      description: >-
+        A document still QUEUED or PROCESSING 10 minutes after upload is reported as FAILED,
+        so nothing stays stuck.
+      responses:
+        "200":
+          description: The document's status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentState" }
+              examples:
+                ready:
+                  summary: Processed
+                  value:
+                    {
+                      id: cdocument0000000000000001,
+                      status: READY,
+                      conceptCount: 9,
+                    }
+                failed:
+                  summary: Processing failed
+                  value:
+                    id: cdocument0000000000000002
+                    status: FAILED
+                    error: Processing timed out, please upload again.
+                    conceptCount: 0
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /api/concepts/{id}/question:
+    parameters:
+      - $ref: "#/components/parameters/ConceptId"
+    post:
+      operationId: createQuestion
+      tags: [practice]
+      summary: Get a new question about a concept
+      description: >-
+        Asks Claude for a question that can be answered from my notes alone, avoiding the last
+        five questions on this concept. Takes no request body.
+      x-rate-limit: ai
+      responses:
+        "200":
+          description: The question and the note sections it is based on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+              example:
+                questionId: cquestion0000000000000001
+                text: In your own words, why does the cell membrane need to be selectively permeable?
+                kind: WHY
+                sources:
+                  - chunkId: cchunk0000000000000000001
+                    refLabel: Week 1 - Cells, part 1
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "502": { $ref: "#/components/responses/AiUnavailable" }
+
+  /api/questions/{id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/QuestionId"
+    post:
+      operationId: answerQuestion
+      tags: [practice]
+      summary: Answer a question and get feedback
+      description: >-
+        Claude grades the answer against my notes. Every quote in `evidence` has been checked
+        to appear in the cited note section; if none survive the check, `unsupported` is true
+        and `confidence` is LOW. LOW confidence leaves mastery unchanged.
+      x-rate-limit: ai
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnswerRequest" }
+            example:
+              answer: It has to let nutrients in and keep harmful things out, so the cell can stay stable.
+      responses:
+        "200":
+          description: Feedback and my updated mastery of the concept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnswerResult" }
+              example:
+                attemptId: cattempt00000000000000001
+                feedback:
+                  verdict: PARTIAL
+                  whatCorrect: You explained that the membrane controls what enters the cell.
+                  whatMissing: Mention that this keeps the cell's internal conditions stable.
+                  evidence:
+                    - chunkId: cchunk0000000000000000001
+                      refLabel: Week 1 - Cells, part 1
+                      quote: The cell membrane controls what enters and leaves.
+                  confidence: MEDIUM
+                  outsideNotes: false
+                  unsupported: false
+                mastery: { state: PRACTICE, score: 0.25 }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/ForbiddenOrigin" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "502": { $ref: "#/components/responses/AiUnavailable" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: >-
+        The Better Auth session cookie, set by signing in through `/api/auth/*`. httpOnly and
+        SameSite=Lax; in production it is Secure and named `__Secure-better-auth.session_token`.
+
+  parameters:
+    CourseId:
+      name: id
+      in: path
+      required: true
+      description: The course's id.
+      schema: { $ref: "#/components/schemas/Id" }
+      example: ccourse000000000000000001
+    DocumentId:
+      name: id
+      in: path
+      required: true
+      description: The document's id.
+      schema: { $ref: "#/components/schemas/Id" }
+      example: cdocument0000000000000001
+    ConceptId:
+      name: id
+      in: path
+      required: true
+      description: The concept's id.
+      schema: { $ref: "#/components/schemas/Id" }
+      example: cconcept00000000000000001
+    QuestionId:
+      name: id
+      in: path
+      required: true
+      description: The question's id.
+      schema: { $ref: "#/components/schemas/Id" }
+      example: cquestion0000000000000001
+
+  headers:
+    RetryAfter:
+      description: Seconds to wait before trying again.
+      required: true
+      schema: { type: integer, minimum: 1 }
+    RequestId:
+      description: Identifies this request in the server logs. Quote it when reporting a problem.
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+
+  schemas:
+    Id:
+      type: string
+      description: A cuid, as Prisma's `cuid()` generates.
+      pattern: "^c[a-z0-9]{24}$"
+      examples: [ccourse000000000000000001]
+    Timestamp:
+      type: string
+      format: date-time
+      examples: ["2026-11-01T09:15:00.000Z"]
+    Score:
+      type: number
+      minimum: 0
+      maximum: 1
+      description: Mastery score from 0 to 1 (docs/PLAN.md §9).
+    MasteryState:
+      type: string
+      enum: [MASTERED, REVIEW, PRACTICE]
+      description: >-
+        MASTERED when score ≥ 0.75 after at least 2 attempts (shown as "Seems understood");
+        REVIEW after at least 1 attempt with score ≥ 0.4; PRACTICE otherwise, including unseen
+        concepts.
+    DocumentStatus:
+      type: string
+      enum: [QUEUED, PROCESSING, READY, FAILED]
+    QuestionKind:
+      type: string
+      enum: [EXPLAIN, WHY, COMPARE, APPLY]
+    Verdict:
+      type: string
+      enum: [CORRECT, PARTIAL, INCORRECT]
+    Confidence:
+      type: string
+      enum: [HIGH, MEDIUM, LOW]
+
+    CourseName:
+      type: string
+      minLength: 1
+      maxLength: 120
+      pattern: "\\S"
+      description: 1–120 characters after trimming.
+    DocumentTitle:
+      type: string
+      minLength: 1
+      maxLength: 200
+      pattern: "\\S"
+      description: 1–200 characters after trimming.
+    AnswerText:
+      type: string
+      minLength: 1
+      maxLength: 4000
+      pattern: "\\S"
+      description: 1–4000 characters after trimming.
+    NoteText:
+      type: string
+      minLength: 1
+      maxLength: 200000
+      pattern: "\\S"
+      description: >-
+        Pasted notes. Longer than 200,000 characters (`MAX_NOTE_CHARS`) gets 413
+        PAYLOAD_TOO_LARGE, as does a file whose extracted text is that long.
+
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status, db]
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        db:
+          type: string
+          enum: [up, down]
+
+    Course:
+      type: object
+      additionalProperties: false
+      required: [id, name, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        name: { $ref: "#/components/schemas/CourseName" }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    CreateCourseRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { $ref: "#/components/schemas/CourseName" }
+    DocumentSummary:
+      type: object
+      additionalProperties: false
+      required: [id, title, status, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        title: { $ref: "#/components/schemas/DocumentTitle" }
+        status:
+          $ref: "#/components/schemas/DocumentStatus"
+          description: >-
+            Still QUEUED or PROCESSING 10 minutes after upload reads as FAILED, as in
+            `GET /api/documents/{id}`.
+        error:
+          type: string
+          minLength: 1
+          description: Present only when the status is FAILED. Safe to show to the user.
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+    CourseDetail:
+      type: object
+      additionalProperties: false
+      required: [id, name, createdAt, documents]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        name: { $ref: "#/components/schemas/CourseName" }
+        createdAt: { $ref: "#/components/schemas/Timestamp" }
+        documents:
+          type: array
+          items: { $ref: "#/components/schemas/DocumentSummary" }
+    CourseConcept:
+      type: object
+      additionalProperties: false
+      required: [id, name, summary, state, score, attempts]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        name: { type: string, minLength: 1 }
+        summary: { type: string }
+        state: { $ref: "#/components/schemas/MasteryState" }
+        score: { $ref: "#/components/schemas/Score" }
+        attempts: { type: integer, minimum: 0 }
+
+    UploadDocumentRequest:
+      type: object
+      additionalProperties: false
+      required: [courseId, title]
+      description: >-
+        Exactly one of `file` or `text`. An empty field counts as not sent: a file input with
+        nothing chosen (an empty part with no file name) or an empty text box.
+      properties:
+        courseId: { $ref: "#/components/schemas/Id" }
+        title: { $ref: "#/components/schemas/DocumentTitle" }
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          description: A .txt, .md or text-based .pdf file.
+        text: { $ref: "#/components/schemas/NoteText" }
+    DocumentAccepted:
+      type: object
+      additionalProperties: false
+      required: [id, status]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        status:
+          type: string
+          const: QUEUED
+    DocumentState:
+      type: object
+      additionalProperties: false
+      required: [id, status, conceptCount]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        status: { $ref: "#/components/schemas/DocumentStatus" }
+        error:
+          type: string
+          minLength: 1
+          description: Present only when the status is FAILED. Safe to show to the user.
+        conceptCount: { type: integer, minimum: 0 }
+
+    QuestionSource:
+      type: object
+      additionalProperties: false
+      required: [chunkId, refLabel]
+      properties:
+        chunkId: { $ref: "#/components/schemas/Id" }
+        refLabel:
+          type: string
+          minLength: 1
+          description: Where the section comes from, e.g. "Week 1 - Cells, part 1".
+    Question:
+      type: object
+      additionalProperties: false
+      required: [questionId, text, kind, sources]
+      properties:
+        questionId: { $ref: "#/components/schemas/Id" }
+        text: { type: string, minLength: 1 }
+        kind: { $ref: "#/components/schemas/QuestionKind" }
+        sources:
+          type: array
+          minItems: 1
+          description: >-
+            The note sections the question is based on. Only sections of this concept appear;
+            ids the model made up are dropped.
+          items: { $ref: "#/components/schemas/QuestionSource" }
+
+    AnswerRequest:
+      type: object
+      additionalProperties: false
+      required: [answer]
+      properties:
+        answer: { $ref: "#/components/schemas/AnswerText" }
+    Evidence:
+      type: object
+      additionalProperties: false
+      required: [chunkId, quote, refLabel]
+      properties:
+        chunkId: { $ref: "#/components/schemas/Id" }
+        refLabel:
+          type: string
+          minLength: 1
+          description: >-
+            Where the cited section comes from, e.g. "Week 1 - Cells, part 1". Added by the
+            server from the note section, never by the model.
+        quote:
+          type: string
+          minLength: 1
+          description: Appears word for word (after normalizing whitespace and quotes) in the cited section.
+    Feedback:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          verdict,
+          whatCorrect,
+          whatMissing,
+          evidence,
+          confidence,
+          outsideNotes,
+          unsupported,
+        ]
+      description: >-
+        Claude's grading (docs/PLAN.md §8) after evidence verification. `unsupported` is set
+        only by the server's check, never by the model.
+      properties:
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        whatCorrect: { type: string }
+        whatMissing: { type: string }
+        evidence:
+          type: array
+          maxItems: 3
+          description: The quotes that passed verification (the model gives 1–3; any that fail are removed).
+          items: { $ref: "#/components/schemas/Evidence" }
+        confidence: { $ref: "#/components/schemas/Confidence" }
+        outsideNotes:
+          type: boolean
+          description: True when the answer relies on things the notes don't cover.
+        unsupported:
+          type: boolean
+          description: True when none of the evidence could be found in the notes.
+    MasteryResult:
+      type: object
+      additionalProperties: false
+      required: [state, score]
+      properties:
+        state: { $ref: "#/components/schemas/MasteryState" }
+        score: { $ref: "#/components/schemas/Score" }
+    AnswerResult:
+      type: object
+      additionalProperties: false
+      required: [attemptId, feedback, mastery]
+      properties:
+        attemptId: { $ref: "#/components/schemas/Id" }
+        feedback: { $ref: "#/components/schemas/Feedback" }
+        mastery: { $ref: "#/components/schemas/MasteryResult" }
+
+    MapNode:
+      type: object
+      additionalProperties: false
+      required: [id, name, state, score]
+      properties:
+        id: { $ref: "#/components/schemas/Id" }
+        name: { type: string, minLength: 1 }
+        state: { $ref: "#/components/schemas/MasteryState" }
+        score: { $ref: "#/components/schemas/Score" }
+    MapEdge:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      description: The concept `from` leads to or underpins the concept `to`.
+      properties:
+        from: { $ref: "#/components/schemas/Id" }
+        to: { $ref: "#/components/schemas/Id" }
+    CourseMap:
+      type: object
+      additionalProperties: false
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/MapNode" }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/MapEdge" }
+    NextConcept:
+      type: object
+      additionalProperties: false
+      required: [conceptId, name, state]
+      properties:
+        conceptId: { $ref: "#/components/schemas/Id" }
+        name: { type: string, minLength: 1 }
+        state: { $ref: "#/components/schemas/MasteryState" }
+
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_ERROR
+        - UNSUPPORTED_TYPE
+        - UNAUTHENTICATED
+        - FORBIDDEN_ORIGIN
+        - NOT_FOUND
+        - PAYLOAD_TOO_LARGE
+        - UNREADABLE_FILE
+        - RATE_LIMITED
+        - INTERNAL
+        - AI_UNAVAILABLE
+    ValidationDetails:
+      type: object
+      additionalProperties: false
+      required: [formErrors, fieldErrors]
+      description: >-
+        Which inputs were wrong. `fieldErrors` is keyed by field name (body field or path
+        parameter); `formErrors` holds problems with the request as a whole, such as an unknown
+        field or malformed JSON.
+      properties:
+        formErrors:
+          type: array
+          items: { type: string }
+        fieldErrors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code: { $ref: "#/components/schemas/ErrorCode" }
+            message:
+              type: string
+              minLength: 1
+              description: A sentence that is safe to show to the user.
+            details: { $ref: "#/components/schemas/ValidationDetails" }
+
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR. A field, path parameter or the body is invalid.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Some fields are invalid.
+              details:
+                formErrors: []
+                fieldErrors:
+                  name: [Must be at most 120 characters.]
+    UploadRejected:
+      description: >-
+        VALIDATION_ERROR for an invalid field, or UNSUPPORTED_TYPE for a file that isn't
+        text, Markdown or PDF (checked by its content, not only its name).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          examples:
+            invalid:
+              summary: An invalid field
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Some fields are invalid.
+                  details:
+                    formErrors: ["Send either a file or text, not both."]
+                    fieldErrors: {}
+            unsupported:
+              summary: A file type that isn't accepted
+              value:
+                error:
+                  code: UNSUPPORTED_TYPE
+                  message: Upload a .txt, .md or text-based .pdf file.
+    Unauthenticated:
+      description: UNAUTHENTICATED. No valid session.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error: { code: UNAUTHENTICATED, message: Please sign in. }
+    ForbiddenOrigin:
+      description: FORBIDDEN_ORIGIN. The request came from another site.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              {
+                code: FORBIDDEN_ORIGIN,
+                message: This request isn't allowed from another site.,
+              }
+    NotFound:
+      description: NOT_FOUND. It doesn't exist, or it belongs to someone else.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error: { code: NOT_FOUND, message: Not found. }
+    PayloadTooLarge:
+      description: PAYLOAD_TOO_LARGE. The body, the upload or the note text is over its limit.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error: { code: PAYLOAD_TOO_LARGE, message: That's too large. }
+    UnreadableFile:
+      description: UNREADABLE_FILE. No text could be read from the file (for example a scanned or empty PDF).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              {
+                code: UNREADABLE_FILE,
+                message: We couldn't read any text in that file.,
+              }
+    RateLimited:
+      description: RATE_LIMITED. Too many requests; wait `Retry-After` seconds.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              {
+                code: RATE_LIMITED,
+                message: Too many requests. Please wait a moment.,
+              }
+    Internal:
+      description: INTERNAL. Something went wrong on the server. No internal details are included.
+      headers:
+        x-request-id: { $ref: "#/components/headers/RequestId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              {
+                code: INTERNAL,
+                message: Something went wrong. Please try again.,
+              }
+    AiUnavailable:
+      description: AI_UNAVAILABLE. The AI service failed, timed out or returned something unusable.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            error:
+              {
+                code: AI_UNAVAILABLE,
+                message: The AI service is unavailable right now.,
+              }

@@ -1,0 +1,15 @@
+# Redocly CLI config for `npm run api:lint` (openapi/openapi.yaml). Every recommended rule is an
+# error, so the lint has no warnings to ignore. tests/contract/spec-rules.test.ts checks what these
+# rules can't (the security matrix responses, closed objects, the PLAN §7 table).
+extends:
+  - recommended-strict
+
+rules:
+  # No licence has been chosen for this repository yet.
+  info-license: off
+  info-license-strict: off
+  # Health has no client error to report. spec-rules.test.ts requires the right 4xx per route instead.
+  operation-4xx-response: off
+
+# Don't send usage data to Redocly (same as REDOCLY_TELEMETRY=off, which Windows npm scripts can't set inline).
+telemetry: off

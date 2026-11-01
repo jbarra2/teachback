@@ -285,20 +285,20 @@ model ApiRateLimit {     // named to avoid clashing with Better Auth's own rateL
 
 All requests and responses are JSON under `/api`, using a cookie session (Better Auth). The table is a summary; the spec wins if they disagree.
 
-| Method | Path                             | Request                                              | Success                                                      | Notes                           |
-| ------ | -------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------ | ------------------------------- |
-| GET    | `/api/health`                    | –                                                    | `{ status, db }`                                             | Public                          |
-| GET    | `/api/openapi` · `/api/docs`     | –                                                    | spec · Scalar UI                                             | Only if `API_DOCS_ENABLED=true` |
-| GET    | `/api/courses`                   | –                                                    | `Course[]`                                                   |                                 |
-| POST   | `/api/courses`                   | `{ name }`                                           | 201 `Course`                                                 |                                 |
-| GET    | `/api/courses/{id}`              | –                                                    | `Course` + `documents[{ id, title, status, createdAt }]`     |                                 |
-| GET    | `/api/courses/{id}/concepts`     | –                                                    | `[{ id, name, summary, state, score, attempts }]`            |                                 |
-| POST   | `/api/documents`                 | multipart: `courseId`, `title`, `file` **or** `text` | 202 `{ id, status }`                                         | rate limit `upload`             |
-| GET    | `/api/documents/{id}`            | –                                                    | `{ id, status, error?, conceptCount }`                       |                                 |
-| POST   | `/api/concepts/{id}/question`    | –                                                    | `{ questionId, text, kind, sources[{ chunkId, refLabel }] }` | rate limit `ai`                 |
-| POST   | `/api/questions/{id}/answer`     | `{ answer }`                                         | `{ attemptId, feedback, mastery{ state, score } }`           | rate limit `ai`                 |
-| GET    | `/api/courses/{id}/map`          | –                                                    | `{ nodes[{ id, name, state, score }], edges[{ from, to }] }` |                                 |
-| GET    | `/api/courses/{id}/next-concept` | –                                                    | `{ conceptId, name, state }` or `null`                       |                                 |
+| Method | Path                             | Request                                              | Success                                                          | Notes                           |
+| ------ | -------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------- |
+| GET    | `/api/health`                    | –                                                    | `{ status, db }`                                                 | Public                          |
+| GET    | `/api/openapi` · `/api/docs`     | –                                                    | spec · Scalar UI                                                 | Only if `API_DOCS_ENABLED=true` |
+| GET    | `/api/courses`                   | –                                                    | `Course[]`                                                       |                                 |
+| POST   | `/api/courses`                   | `{ name }`                                           | 201 `Course`                                                     |                                 |
+| GET    | `/api/courses/{id}`              | –                                                    | `Course` + `documents[{ id, title, status, error?, createdAt }]` |                                 |
+| GET    | `/api/courses/{id}/concepts`     | –                                                    | `[{ id, name, summary, state, score, attempts }]`                |                                 |
+| POST   | `/api/documents`                 | multipart: `courseId`, `title`, `file` **or** `text` | 202 `{ id, status }`                                             | rate limit `upload`             |
+| GET    | `/api/documents/{id}`            | –                                                    | `{ id, status, error?, conceptCount }`                           |                                 |
+| POST   | `/api/concepts/{id}/question`    | –                                                    | `{ questionId, text, kind, sources[{ chunkId, refLabel }] }`     | rate limit `ai`                 |
+| POST   | `/api/questions/{id}/answer`     | `{ answer }`                                         | `{ attemptId, feedback, mastery{ state, score } }`               | rate limit `ai`                 |
+| GET    | `/api/courses/{id}/map`          | –                                                    | `{ nodes[{ id, name, state, score }], edges[{ from, to }] }`     |                                 |
+| GET    | `/api/courses/{id}/next-concept` | –                                                    | `{ conceptId, name, state }` or `null`                           |                                 |
 
 **Limits:**
 
@@ -365,6 +365,7 @@ Postman users can import `openapi.yaml` directly.
    - Unknown chunkIds and edges are dropped.
 2. **`generateQuestion(concept, chunks, recentQuestions)`** returns `{ text, kind, sourceChunkIds[] }` (fast model)
    - Answerable from the chunks alone. Prefer EXPLAIN/WHY. Don't repeat the last 5.
+   - Unknown sourceChunkIds are dropped, and the contract needs at least one source. Check this in the schema passed to `generateJson` (a refine on `sourceChunkIds` against the concept's chunk ids), so a miss is retried once like any unusable output, then 502.
 3. **`evaluateAnswer(question, chunks, answer)`** returns `Feedback` (smart model)
    ```ts
    // Sent to Claude as the output schema:
@@ -372,16 +373,19 @@ Postman users can import `openapi.yaml` directly.
      verdict: z.enum(["CORRECT", "PARTIAL", "INCORRECT"]),
      whatCorrect: z.string(),
      whatMissing: z.string(),
-     evidence: z.array(z.object({ chunkId: z.string(), quote: z.string() })), // 1–3, zod-checked
+     evidence: z.array(
+       z.object({ chunkId: z.string().min(1), quote: z.string().min(1) }),
+     ), // 1–3, zod-checked
      confidence: z.enum(["HIGH", "MEDIUM", "LOW"]),
      outsideNotes: z.boolean(),
    });
-   // Stored and returned. `unsupported` is set only by verifyEvidence; the model can't set it:
+   // Stored and returned. `unsupported` is set only by verifyEvidence; the model can't set it.
+   // The answer API also adds each evidence item's `refLabel` from its Chunk, so every quote can be labelled.
    const Feedback = ModelFeedback.extend({ unsupported: z.boolean() });
    ```
 4. **`verifyEvidence(feedback, chunks)`** is pure code and the grounding guarantee:
    - Normalize text: lowercase, collapse whitespace, straighten quotes and dashes.
-   - Keep evidence only if its `chunkId` was provided **and** its quote is a substring of that chunk.
+   - Keep evidence only if its `chunkId` was provided **and** its quote, normalized, is non-empty and a substring of that chunk (an empty quote is a substring of everything).
    - If any item was dropped, confidence becomes at most MEDIUM. If all were dropped, confidence is LOW and `unsupported = true`.
 
 **Cost control:**
@@ -436,9 +440,9 @@ Postman users can import `openapi.yaml` directly.
 | `test:ci`                               | unit only (T01), then `vitest run --coverage` (unit + integration + thresholds)                   | T01 → T07 |
 | `test:e2e`                              | `playwright test`                                                                                 | T29       |
 | `audit`                                 | `npm audit --omit=dev --audit-level=high`                                                         | T01       |
-| `api:lint`                              | `redocly lint openapi/openapi.yaml`                                                               | T03       |
-| `api:types`                             | `openapi-typescript openapi/openapi.yaml -o src/lib/api-client/schema.d.ts`                       | T03       |
-| `api:types:check`                       | `npm run api:types && git diff --exit-code -- src/lib/api-client/schema.d.ts`                     | T03       |
+| `api:lint`                              | `node scripts/api-lint.mjs` (`redocly lint openapi/openapi.yaml`, rules in `redocly.yaml`)        | T03       |
+| `api:types`                             | `node scripts/api-types.mjs` (openapi-typescript → `src/lib/api-client/schema.d.ts`)              | T03       |
+| `api:types:check`                       | `node scripts/api-types.mjs --check` (fails if `schema.d.ts` is missing or stale)                 | T03       |
 | `db:up` / `db:down`                     | `docker compose up -d --wait db db-test` / `docker compose down`                                  | T01       |
 | `db:migrate`                            | `prisma migrate dev` (lead only)                                                                  | T02       |
 | `db:update`                             | `prisma migrate deploy && prisma generate`                                                        | T02       |
