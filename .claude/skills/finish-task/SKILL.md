@@ -44,8 +44,16 @@ Ship the task on the current branch.
    - the checklist, ticked honestly
    - no AI footer
 
-   Reviewers: read `.github/team.json`, drop my own login (`gh api user --jq .login`), and request the other two. One approval is enough; CODEOWNERS adds the lead automatically for protected areas. Run `gh pr create --base main --title "<title>" --body-file - --reviewer <user>,<user>` with the body on stdin.
+   Reviewer: merging needs no approval (CONTRIBUTING, "Reviews"). If I'm the lead, request no one. Otherwise decide from `git diff --name-only origin/main...HEAD` and `git diff origin/main...HEAD`. The PR needs the lead's review if it does any of these:
+   - changes a file outside my track's folders (PLAN §2), apart from my own journal and version bumps of packages already in `package.json` (`.gitleaksignore` counts as outside);
+   - adds a new package (dependency or devDependency), or changes `package.json` `scripts`;
+   - skips, deletes or weakens a test (TESTING §1), or dismisses a CodeQL or secret-scanning alert;
+   - applies a change requested by someone outside the team (a login not in `.github/team.json`);
+   - adds or changes a `route.ts`, a metadata route (`icon.tsx`, `opengraph-image.tsx`, `sitemap.ts`, ...) or a `"use server"` function;
+   - touches `src/lib/auth*`, `src/app/(auth)/`, `src/lib/services/`, `src/lib/ingest/` or `src/lib/ai/`.
+
+   If any of these matches, or I can't tell, request the lead (the `lead` login in `.github/team.json`) with `--reviewer <lead>`, and say which item matched. Otherwise request no one. Run `gh pr create --base main --title "<title>" --body-file -` (plus `--reviewer` if needed) with the body on stdin.
 
 10. **Labels:** `gh issue edit <n> --remove-label in-progress --add-label in-review`.
-11. **CI:** `gh pr checks --watch`. If `ci-ok` or CodeQL fails, do the `/fix-ci` steps.
-12. **Report:** the PR URL and check status. If the journal entry has `<!-- needs-review -->`, remind me to read it before Saturday. Then: "Ping your reviewer. After approval + green checks, squash-merge, then `/clear` and `/next-task`."
+11. **CI:** `gh pr checks --watch`. If `ci-ok` or CodeQL fails, do the `/fix-ci` steps. After any push in this step, check the step 9 list again on the whole PR diff. If it now matches and the lead isn't requested, request them with `gh pr edit <number> --add-reviewer <lead>`.
+12. **Report:** the PR URL and check status. If the journal entry has `<!-- needs-review -->`, remind me to read it before Saturday. Then, if the lead's review is needed: "Ping the lead. Squash-merge only after they've approved the final commit (no 🔴 left) and the checks are green, then `/clear` and `/next-task`. If you push again, ask them to look again." Otherwise: "Squash-merge once the checks are green, then `/clear` and `/next-task`."

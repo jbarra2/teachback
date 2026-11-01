@@ -81,3 +81,26 @@ Working out which npm versions actually rewrite the lockfile. I regenerated a co
 
 **What I learned:**
 The lockfile format depends on the npm minor version, not just the major, so a team needs a pinned range that the tool enforces itself. With `devEngines`, npm stops `install` and `run` with EBADDEVENGINES on a wrong version, so the check lives in one place instead of in every script.
+
+## T37 · Merge on green CI; lead reviews risky PRs (#41) · Oct 31, 2026
+
+<!-- needs-review -->
+
+**What I built:** Merging to main no longer needs an approval: a PR merges once `ci-ok` and CodeQL are green, and a teammate's risky PR (another track's files, CI files, new packages, routes, auth, data access, uploads, the Claude provider) waits for my review. To make that safe I moved the ruleset into `scripts/protect-main-ruleset.json` with a live-drift check (`setup-github.mjs --check-protect`), added a plain-Node dependency check (`scripts/lockfile-check.mjs`) that CI runs before any install script, and added tests that pin `ci.yml` and keep every HTTP entry point under `src/app/api/`.
+
+**Skills & tools:** GitHub rulesets and required checks, GitHub Actions, npm lockfiles and install scripts, Next.js entry points, Vitest, mutation testing, security review
+
+**Asked Claude for:** Whether required PR approvals were worth the wait for a three-person team, then to drop them and keep main safe without them, with review rounds until the findings ran out of High and Medium issues.
+
+**Decided / dropped:**
+
+- Dropped required approvals but kept the PR requirement, `ci-ok` and CodeQL. My review of teammates' risky PRs is a team rule that `/finish-task` applies, not a GitHub gate, so my own PRs never wait.
+- Pinned `ci-ok` to the GitHub Actions app, so a hand-posted status can't pass as CI.
+- Checked dependencies with plain Node before `npm ci`, after a review showed that running the check with Vitest let the lockfile replace Vitest itself.
+- Dropped the idea of enforcing the rule with code-owner review: it would have blocked my own PRs or needed a bypass click every time.
+
+**Hardest part, and how I solved it:**
+Each review round found a new way around the newest guard: the lockfile check could be fooled by an uppercase `.TGZ`, by an entry nothing depended on, or by the very packages it was checking. I fixed each one with a test first and proved it by breaking the code on purpose, and I stopped when a round found only small, deliberate-tampering issues.
+
+**What I learned:**
+Without a human approval, every protection has to be something a machine checks, and CI runs whatever the PR says, so the check must not depend on code the PR can change. npm installs whatever a lockfile's `resolved` URL points at as long as the hash matches, which is why a lockfile needs its own check.

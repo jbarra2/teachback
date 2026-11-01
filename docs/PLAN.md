@@ -92,6 +92,7 @@ Prisma → PostgreSQL (Docker)
 ### Conventions
 
 - **Every** API route is wrapped in `withApi()`. Handlers do only: parse with the zod schema → call **one** service → return contract-shaped JSON.
+- **Every HTTP entry point lives under `src/app/api/`:** no `route.ts` anywhere else, no metadata route handlers (`icon.tsx`, `opengraph-image.tsx`, `sitemap.ts`, ...), no `pages/`, and no Server Actions (`"use server"`). Each would skip `withApi()`. `tests/tooling/entry-points.test.ts` enforces it.
 - **No Prisma in components or route handlers** (enforced by lint). Services own data access.
 - **Ownership:** every query is scoped to the signed-in user. Another user's resource returns **404**.
 - **Errors:** `{ error: { code, message, details? } }`. 500s are generic and carry `x-request-id`.
@@ -494,7 +495,7 @@ Evenings on weekdays, full days on weekends.
 
 **Never cut:** security matrix tests, T14, the T29 security specs.
 
-**Rebalancing:** the lead's Wednesday is deliberately a buffer. If Frontend is behind, the lead takes T26. If AI is behind, the lead takes T24. Any teammate can approve PRs, so reviews never wait on one person.
+**Rebalancing:** the lead's Wednesday is deliberately a buffer. If Frontend is behind, the lead takes T26. If AI is behind, the lead takes T24. PRs merge on green CI with no approval, so merges never wait on a reviewer. Only a teammate's risky PR (CONTRIBUTING, "Reviews") waits for the lead's review.
 
 ### Backlog
 
@@ -547,14 +548,14 @@ Full acceptance criteria are in each GitHub issue.
 
 ## §12 Risks
 
-| Risk                                | Mitigation                                                                                                                                                                                                                  |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Lost first week                     | Scope cut, Claude Code implementing, contract-first + mocks, T20 go/no-go                                                                                                                                                   |
-| Security holes under time pressure  | `withApi` secure-by-default, security matrix per route, hooks + CI + CodeQL + `/security-review`, abuse bash (T32)                                                                                                          |
-| Ungrounded or gamed feedback        | `verifyEvidence`, prompt-injection rules + eval cases, LOW confidence doesn't move mastery                                                                                                                                  |
-| Docker issues on Windows            | `npm run setup` checks and explains. Docker Desktop with WSL 2. Ports bound to 127.0.0.1:5433/5434 to avoid clashes with a local Postgres.                                                                                  |
-| Teammates hit Claude Pro limits     | One task per session (`/clear`), lean CLAUDE.md, the lead (Max) picks up urgent work                                                                                                                                        |
-| Lead is the bottleneck              | T19 → Frontend, T24 and T29 → AI, Wednesday buffer. Any teammate can approve a PR (CODEOWNERS still pulls the lead in for protected areas). T06 no longer waits on Frontend; start it Friday night if T02/T03 finish early. |
-| Merge conflicts / blocked teammates | Folder ownership, protected contract/schema, small PRs, blocked-by links                                                                                                                                                    |
-| API cost / Opus latency             | Fake provider by default, prompt caching, per-user rate limits, T27 measures Opus vs Sonnet for grading                                                                                                                     |
-| Deploy rabbit hole                  | Stretch only, 2-hour cap                                                                                                                                                                                                    |
+| Risk                                | Mitigation                                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Lost first week                     | Scope cut, Claude Code implementing, contract-first + mocks, T20 go/no-go                                                                                                                                                                        |
+| Security holes under time pressure  | `withApi` secure-by-default, security matrix per route, hooks + CI + CodeQL + `/security-review`, abuse bash (T32)                                                                                                                               |
+| Ungrounded or gamed feedback        | `verifyEvidence`, prompt-injection rules + eval cases, LOW confidence doesn't move mastery                                                                                                                                                       |
+| Docker issues on Windows            | `npm run setup` checks and explains. Docker Desktop with WSL 2. Ports bound to 127.0.0.1:5433/5434 to avoid clashes with a local Postgres.                                                                                                       |
+| Teammates hit Claude Pro limits     | One task per session (`/clear`), lean CLAUDE.md, the lead (Max) picks up urgent work                                                                                                                                                             |
+| Lead is the bottleneck              | T19 → Frontend, T24 and T29 → AI, Wednesday buffer. PRs merge on green CI with no approval. Only teammates' risky PRs wait for the lead's review (CONTRIBUTING). T06 no longer waits on Frontend; start it Friday night if T02/T03 finish early. |
+| Merge conflicts / blocked teammates | Folder ownership, protected contract/schema, small PRs, blocked-by links                                                                                                                                                                         |
+| API cost / Opus latency             | Fake provider by default, prompt caching, per-user rate limits, T27 measures Opus vs Sonnet for grading                                                                                                                                          |
+| Deploy rabbit hole                  | Stretch only, 2-hour cap                                                                                                                                                                                                                         |

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import nextConfig from "../../next.config";
@@ -36,6 +37,29 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
     expect(scripts["test:ci"]).toBe(
       "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --coverage",
     );
+  });
+
+  // A pre/post script runs around every `npm run` (a `pretest:ci` could delete tests before they
+  // run), so a new script is a deliberate edit here, which needs the lead's review.
+  it("has exactly the reviewed scripts", () => {
+    expect(Object.keys(scripts).sort()).toEqual([
+      "audit",
+      "build",
+      "check",
+      "db:down",
+      "db:up",
+      "dev",
+      "format",
+      "format:check",
+      "lint",
+      "prepare",
+      "setup",
+      "start",
+      "test",
+      "test:ci",
+      "typecheck",
+      "verify",
+    ]);
   });
 
   it("audit fails on high and critical production advisories", () => {
@@ -110,20 +134,204 @@ describe("toolchain: one Node and npm for the team and CI", () => {
     for (const v of versions) expect(v).toBe("${{ env.NODE_VERSION }}");
   });
 
+  // Jobs sit two spaces in under `jobs:` (any id GitHub accepts, a trailing comment allowed).
+  // Comments are dropped so they can't count as steps.
+  const jobs = ci
+    .slice(ci.indexOf("\njobs:\n"))
+    .split(/\n(?= {2}[A-Za-z_][\w-]*:)/)
+    .slice(1)
+    .map((block) => ({
+      id: /^ {2}([A-Za-z_][\w-]*):/.exec(block)?.[1] ?? "",
+      code: block.replace(/^\s*#.*$/gm, ""),
+    }));
+
+  // ci-ok is the one required check (protect-main-ruleset.json), so it must cover every job.
+  // It only proves anything for PRs that leave ci.yml alone: a PR's CI runs the PR's own
+  // workflow, so CI-defining files need the lead's review (CONTRIBUTING, "Reviews").
+  // The tests below explain what each part of ci.yml must do; this one catches every other edit
+  // (a `|| true`, a step-level `if: false`, a removed step, a flow-mapping `shell:`). Change ci.yml
+  // and this hash together, in a PR the lead reviews.
+  it("ci.yml is exactly the reviewed workflow", () => {
+    expect(
+      createHash("sha256").update(ci.replace(/\r\n/g, "\n")).digest("hex"),
+    ).toBe("a8db06151e934f52b45ea9040f32b034e88d0aba04719e0812a98fada3e612b5");
+  });
+
+  it("ci.yml is the only workflow, and nothing in it may fail quietly", () => {
+    // GitHub runs every .yml/.yaml file there; anything else (a Mac's .DS_Store) is ignored.
+    expect(
+      readdirSync(path.join(root, ".github/workflows")).filter((f) =>
+        /\.ya?ml$/.test(f),
+      ),
+    ).toEqual(["ci.yml"]);
+    expect(ci).not.toMatch(/continue-on-error/);
+  });
+
+  it("each job runs under the reviewed condition", () => {
+    const conditions = Object.fromEntries(
+      jobs.map((j) => [j.id, /^ {4}if: (.*)$/m.exec(j.code)?.[1] ?? null]),
+    );
+    const app = "needs.detect.outputs.app == 'true'";
+    expect(conditions).toEqual({
+      detect: null,
+      deps: app,
+      static: app,
+      test: app,
+      security: null,
+      build: app,
+      e2e: "needs.detect.outputs.e2e == 'true'",
+      "ci-ok": "always()",
+    });
+    // A skipped need skips the job, which ci-ok counts as passed, so needs are pinned too. Every
+    // job that installs with scripts waits for deps (the dependency check).
+    const needs = Object.fromEntries(
+      jobs.map((j) => [j.id, /^ {4}needs: (.*)$/m.exec(j.code)?.[1] ?? null]),
+    );
+    expect(needs).toEqual({
+      detect: null,
+      deps: "detect",
+      static: "[detect, deps]",
+      test: "[detect, deps]",
+      security: "detect",
+      build: "[detect, deps]",
+      e2e: "[detect, deps]",
+      "ci-ok": "[detect, deps, static, test, security, build, e2e]",
+    });
+    // The whole detect job: its outputs decide which jobs run at all (a skipped job counts as
+    // passed for ci-ok), so the step id, the wiring and the checkout are pinned with the tests.
+    const detect = jobs.find((j) => j.id === "detect")?.code ?? "";
+    expect(detect.trimEnd()).toBe(
+      [
+        "  detect:",
+        "    name: detect",
+        "    runs-on: ubuntu-latest",
+        "    outputs:",
+        "      app: ${{ steps.d.outputs.app }}",
+        "      e2e: ${{ steps.d.outputs.e2e }}",
+        "    steps:",
+        "      - uses: actions/checkout@v5",
+        "      - id: d",
+        "        run: |",
+        `          if [ -f package.json ]; then echo "app=true" >> "$GITHUB_OUTPUT"; else echo "app=false" >> "$GITHUB_OUTPUT"; fi`,
+        `          if [ -f playwright.config.ts ]; then echo "e2e=true" >> "$GITHUB_OUTPUT"; else echo "e2e=false" >> "$GITHUB_OUTPUT"; fi`,
+      ].join("\n"),
+    );
+  });
+
+  // The lockfile check only means something if no install script ran before it (the test job
+  // runs `npm ci` with scripts first), so the whole deps job is pinned.
+  // The dependency check runs with plain Node (no installed package can fake it), before npm
+  // reads the lockfile and again on what an install without scripts put on disk.
+  it("deps checks dependencies with plain Node, around an install that runs no scripts", () => {
+    const deps = jobs.find((j) => j.id === "deps")?.code ?? "";
+    expect(deps.trimEnd()).toBe(
+      [
+        "  deps:",
+        "    name: deps (lockfile, before any install script runs)",
+        "    needs: detect",
+        "    if: needs.detect.outputs.app == 'true'",
+        "    runs-on: ubuntu-latest",
+        "    timeout-minutes: 10",
+        "    steps:",
+        "      - uses: actions/checkout@v5",
+        "      - uses: actions/setup-node@v5",
+        '        with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }',
+        "", // the two comment lines (comments are dropped before comparing)
+        "",
+        "      - run: node scripts/lockfile-check.mjs",
+        "      - run: npm ci --ignore-scripts",
+        "      - run: node scripts/lockfile-check.mjs --installed",
+      ].join("\n"),
+    );
+  });
+
+  // Everything before `jobs:` applies to every job (a `defaults.run.shell` would turn each step
+  // into a no-op), so the header is pinned too.
+  it("the workflow header is the reviewed one", () => {
+    expect(ci.slice(0, ci.indexOf("\njobs:\n"))).toBe(
+      [
+        "name: CI",
+        "",
+        "on:",
+        "  pull_request:",
+        "  push:",
+        "    branches: [main]",
+        "  schedule:",
+        '    - cron: "17 9 * * 1" # weekly: full-history secret scan + dependency audit',
+        "  workflow_dispatch:",
+        "",
+        "concurrency:",
+        "  group: ci-${{ github.ref }}",
+        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+        "",
+        "permissions:",
+        "  contents: read",
+        "",
+        "env:",
+        '  NODE_VERSION: "24"',
+        '  NEXT_TELEMETRY_DISABLED: "1"',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  // GitHub also reads `"if":` and `if :` as `if`, and a `shell:` or `defaults:` changes what every
+  // `run:` does, so none of those may appear anywhere.
+  it("has no shell overrides, quoted keys or spaced keys", () => {
+    expect(ci).not.toMatch(/^\s*(-\s+)?(shell|defaults)\s*:/m);
+    expect(ci).not.toMatch(/^\s*(-\s+)?["'][^"'\n]+["']\s*:/m);
+    expect(ci).not.toMatch(/^\s*(-\s+)?[A-Za-z_][\w-]*\s+:/m);
+  });
+
+  it("ci-ok waits for every other job and fails if any failed or was cancelled", () => {
+    const ciOk = jobs.find((j) => j.id === "ci-ok");
+    expect(ciOk).toBeDefined();
+    expect(ciOk?.code).toMatch(/^ {4}name: ci-ok$/m);
+    const needs = (
+      /^ {4}needs: \[([^\]]*)\]$/m.exec(ciOk?.code ?? "")?.[1] ?? ""
+    )
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const others = jobs.map((j) => j.id).filter((id) => id !== "ci-ok");
+    expect(others.length).toBeGreaterThan(0);
+    expect([...needs].sort()).toEqual([...others].sort());
+    // One `if:` only (the job's own), and the whole job pinned, so no step-level condition, extra
+    // key or early exit can let it pass.
+    expect(ciOk?.code.match(/\bif:/g) ?? []).toHaveLength(1);
+    expect(ciOk?.code.trimEnd()).toBe(
+      [
+        "  ci-ok:",
+        "    name: ci-ok",
+        "    if: always()",
+        "    needs: [detect, deps, static, test, security, build, e2e]",
+        "    runs-on: ubuntu-latest",
+        "    steps:",
+        "      - name: All jobs passed (or were skipped)",
+        "        env:",
+        "          EVENT: ${{ github.event_name }}",
+        "          BASE_REF: ${{ github.base_ref }}",
+        "        run: |",
+        `          if [ "\${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then`,
+        '            echo "One or more CI jobs failed."',
+        "            exit 1",
+        "          fi",
+        "", // the comment line (comments are dropped before comparing)
+        '          if [ "$EVENT" = "pull_request" ] && [ "$BASE_REF" != "main" ]; then',
+        '            echo "This PR targets $BASE_REF. PRs must target main."',
+        "            exit 1",
+        "          fi",
+        '          echo "CI passed."',
+      ].join("\n"),
+    );
+  });
+
   it("each job that runs node or npm sets up Node first; only jobs that install cache npm", () => {
-    // Jobs sit two spaces in under `jobs:`. Comments are dropped so they can't count as steps.
-    const jobs = ci
-      .slice(ci.indexOf("\njobs:\n"))
-      .split(/\n(?= {2}[a-z0-9_-]+:\n)/)
-      .slice(1)
-      .map((block) => ({
-        id: /^ {2}([a-z0-9_-]+):/.exec(block)?.[1] ?? "",
-        code: block.replace(/^\s*#.*$/gm, ""),
-      }));
     // Without setup-node, a job gets the runner's preinstalled Node instead of NODE_VERSION.
     const usesNode = /\b(?:node|np[mx]) \S/;
     const nodeJobs = jobs.filter((j) => usesNode.test(j.code));
     expect(nodeJobs.map((j) => j.id)).toEqual([
+      "deps",
       "static",
       "test",
       "security",
@@ -155,6 +363,181 @@ describe("AI attribution stays out of git history (CLAUDE.md rule 7)", () => {
       pr: "",
       sessionUrl: false,
     });
+  });
+});
+
+describe("main-branch ruleset (scripts/protect-main-ruleset.json)", () => {
+  // What `setup-github.mjs --protect` sends to GitHub for a fresh repo. The live ruleset is
+  // changed by hand in GitHub's settings to match. Any change here is a deliberate edit to this test.
+  const ruleset: unknown = JSON.parse(
+    readFileSync(path.join(root, "scripts/protect-main-ruleset.json"), "utf8"),
+  );
+
+  it("requires a PR, ci-ok from GitHub Actions and CodeQL, blocks force-push and deletion, and needs no approval", () => {
+    expect(ruleset).toEqual({
+      name: "protect main",
+      target: "branch",
+      enforcement: "active",
+      conditions: {
+        ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
+      },
+      rules: [
+        { type: "deletion" },
+        { type: "non_fast_forward" },
+        {
+          type: "pull_request",
+          // No approval: the lead reviews teammates' risky PRs by team rule (CONTRIBUTING).
+          parameters: {
+            required_approving_review_count: 0,
+            require_extra_approval_for_unattributed_changes: false,
+            dismiss_stale_reviews_on_push: true,
+            require_code_owner_review: false,
+            require_last_push_approval: false,
+            required_review_thread_resolution: false,
+          },
+        },
+        {
+          type: "required_status_checks",
+          parameters: {
+            strict_required_status_checks_policy: false,
+            // 15368 is the GitHub Actions app: a commit status posted by hand can't pass as ci-ok.
+            // A PR can still change ci.yml itself, which is why CI files need the lead's review.
+            required_status_checks: [
+              { context: "ci-ok", integration_id: 15368 },
+            ],
+          },
+        },
+        {
+          type: "code_scanning",
+          parameters: {
+            // medium_or_higher: with no approvals, CodeQL also blocks Medium alerts (XSS, open redirect).
+            code_scanning_tools: [
+              {
+                tool: "CodeQL",
+                security_alerts_threshold: "medium_or_higher",
+                alerts_threshold: "errors",
+              },
+            ],
+          },
+        },
+      ],
+    });
+  });
+
+  it("is what setup-github.mjs --protect creates", () => {
+    const script = readFileSync(
+      path.join(root, "scripts/setup-github.mjs"),
+      "utf8",
+    );
+    expect(script).toContain(
+      'path.join(root, "scripts", "protect-main-ruleset.json")',
+    );
+    // Sent as read: nothing assigns to the parsed ruleset after the one declaration.
+    expect(script.match(/\bruleset(\.\w+|\[[^\]]*\])*\s*=(?!=)/g)).toEqual([
+      "ruleset =",
+    ]);
+    expect(script).toContain("input: JSON.stringify(ruleset)");
+    // An existing ruleset is compared, not trusted by name (scripts/ruleset-check.mjs).
+    expect(script).toContain("list.find((r) => r.name === ruleset.name)");
+    expect(script).toContain("return rulesetDifferences(");
+    expect(script).toContain('return diffs.length ? null : "exists";');
+    expect(script).toContain("process.exit(failed ? 1 : 0);");
+    // --check-protect only reads, and fails on any difference.
+    expect(script).toContain("process.exit(diffs.length ? 1 : 0);");
+    // Nothing changes the parsed ruleset in place either.
+    expect(script).not.toMatch(
+      /\bruleset(\.\w+|\[[^\]]*\])*\.(pop|push|shift|unshift|splice|sort|reverse|fill|copyWithin)\(|Object\.assign\(\s*ruleset|delete\s+ruleset/,
+    );
+  });
+});
+
+describe("lead-review rule (CONTRIBUTING and /finish-task say the same)", () => {
+  // Not enforced by GitHub: /finish-task decides from the diff whether to request the lead.
+  const docs = {
+    CONTRIBUTING: readFileSync(path.join(root, "CONTRIBUTING.md"), "utf8"),
+    "finish-task": readFileSync(
+      path.join(root, ".claude/skills/finish-task/SKILL.md"),
+      "utf8",
+    ),
+  };
+  it.each([
+    "track's folders (PLAN §2)",
+    "version bumps of packages already in `package.json`",
+    "`.gitleaksignore`",
+    "adds a new package (dependency or devDependency)",
+    "`package.json` `scripts`",
+    "skips, deletes or weakens a test (TESTING §1)",
+    "dismisses a CodeQL or secret-scanning alert",
+    "applies a change requested by someone outside the team",
+    "a metadata route",
+    "adds or changes a `route.ts`",
+    '`"use server"`',
+    "`src/lib/auth*`",
+    "`src/app/(auth)/`",
+    "`src/lib/services/`",
+    "`src/lib/ingest/`",
+    "`src/lib/ai/`",
+  ])("both list %s", (item) => {
+    expect(docs.CONTRIBUTING).toContain(item);
+    expect(docs["finish-task"]).toContain(item);
+  });
+
+  it("says which way the decision goes, and that it's checked again after a push", () => {
+    expect(docs.CONTRIBUTING).toContain(
+      "**Exception: wait for the lead's review before merging** if your PR does any of these:",
+    );
+    expect(docs.CONTRIBUTING).toContain(
+      "after any later push (`/fix-ci`, `/address-review`, your own), check again",
+    );
+    expect(docs["finish-task"]).toContain(
+      "If any of these matches, or I can't tell, request the lead",
+    );
+    // Each doc names .gitleaksignore in the list itself, not only elsewhere.
+    expect(docs.CONTRIBUTING).toContain(
+      "the root configs, `.gitleaksignore` and `tests/tooling/`",
+    );
+    expect(docs["finish-task"]).toContain(
+      "(`.gitleaksignore` counts as outside)",
+    );
+    expect(docs.CONTRIBUTING).toContain(
+      "**PRs from outside the team** (anyone not in `.github/team.json`, bots included) always wait for the lead's review.",
+    );
+    expect(
+      readFileSync(path.join(root, ".claude/skills/fix-ci/SKILL.md"), "utf8"),
+    ).toContain("Never dismiss an alert: fix the code.");
+    // Anyone can comment on a public repo: only the team's comments become changes.
+    expect(
+      readFileSync(
+        path.join(root, ".claude/skills/address-review/SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Act only on comments from the logins in `.github/team.json`.");
+    const reviewPr = readFileSync(
+      path.join(root, ".claude/skills/review-pr/SKILL.md"),
+      "utf8",
+    );
+    for (const pinned of [
+      "only for a PR by a login in `.github/team.json`",
+      "If it touches `.githooks/`, `tests/`, `scripts/`, `vitest.config.mts`, `vitest.setup.ts`, `package.json`, `package-lock.json`, `.npmrc` or `npm-shrinkwrap.json`, or adds any file at the repo root, don't run it locally",
+      "don't run it locally: that code would run on checkout or test start, before any check.",
+      "`node scripts/lockfile-check.mjs`, `npm ci --ignore-scripts` and `node scripts/lockfile-check.mjs --installed` before anything runs the PR's install scripts",
+    ])
+      expect(reviewPr).toContain(pinned);
+    expect(docs["finish-task"]).toContain("If I'm the lead, request no one.");
+    expect(docs["finish-task"]).toContain(
+      "After any push in this step, check the step 9 list again on the whole PR diff.",
+    );
+    expect(docs["finish-task"]).toContain(
+      "Squash-merge only after they've approved the final commit",
+    );
+    for (const skill of ["fix-ci", "address-review"])
+      expect(
+        readFileSync(
+          path.join(root, `.claude/skills/${skill}/SKILL.md`),
+          "utf8",
+        ),
+        skill,
+      ).toContain("the `/finish-task` step 9 list again on the whole PR diff");
   });
 });
 
@@ -231,6 +614,20 @@ describe("next.config.ts", () => {
 
   it("stops `next dev` from writing AGENTS.md (CLAUDE.md holds agent instructions)", () => {
     expect(nextConfig.agentRules).toBe(false);
+  });
+
+  // Next loads next.config.js before .mjs and .ts, while these tests import whichever Vite finds
+  // first, so a second config file could be the one Next really runs.
+  it("is the only Next config file", () => {
+    expect(
+      readdirSync(root).filter((f) => f.startsWith("next.config.")),
+    ).toEqual(["next.config.ts"]);
+  });
+
+  // A custom pageExtensions (e.g. "page.ts") would let a route.page.ts serve requests that
+  // tests/tooling/entry-points.test.ts doesn't recognise.
+  it("keeps the default page extensions", () => {
+    expect(nextConfig.pageExtensions).toBeUndefined();
   });
 
   it("leaves cacheComponents off (PLAN §3)", () => {
