@@ -43,6 +43,7 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
   // run), so a new script is a deliberate edit here, which needs the lead's review.
   it("has exactly the reviewed scripts", () => {
     expect(Object.keys(scripts).sort()).toEqual([
+      "ai:ping",
       "audit",
       "build",
       "check",
