@@ -22,6 +22,13 @@
 /tsconfig.json              @jbarra2
 /.gitignore                 @jbarra2
 /.gitleaks.toml             @jbarra2
+# Risky for any track (CONTRIBUTING, "Reviews"), so the lead is requested on these too:
+/.gitleaksignore            @jbarra2
+/package.json               @jbarra2
+/package-lock.json          @jbarra2
+/src/lib/services/          @jbarra2
+/src/lib/auth.ts            @jbarra2
+/src/lib/auth-client.ts     @jbarra2
 /src/lib/ai/                @hsheik20
 /src/lib/ingest/            @hsheik20
 /src/app/api/documents/     @hsheik20

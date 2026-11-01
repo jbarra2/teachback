@@ -751,6 +751,27 @@
         "`npm run verify` and CI pass."
       ],
       "refs": "PLAN §3, §10; CONTRIBUTING.md"
+    },
+    {
+      "id": "T37",
+      "title": "Merge on green CI; lead reviews risky PRs",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sat 10/31",
+      "blockedBy": ["T01"],
+      "critical": false,
+      "goal": "Stop merges from waiting on approvals. PRs merge once `ci-ok` and CodeQL are green. A teammate's risky PR waits for the lead's review: one that touches CI-defining files or another track, adds a package, weakens a test, adds an HTTP entry point, or touches auth, data access, uploads, or the Claude provider or prompts.",
+      "acceptance": [
+        "`scripts/protect-main-ruleset.json` holds the ruleset `setup-github.mjs --protect` creates. It needs 0 approvals and no extra approval for unattributed changes. It keeps the PR requirement, `ci-ok` from GitHub Actions only (app 15368, which blocks hand-posted statuses), CodeQL blocking Medium and higher security alerts, and no force-push or deletion. A test pins the whole ruleset.",
+        "`setup-github.mjs --check-protect` (reads only) lists how the live ruleset differs from that file and exits 1 if it does; `--protect` reports the same instead of trusting an existing ruleset by name. The comparison has its own tests.",
+        "Tests pin `ci.yml` (its exact hash, plus what each part must do): it's the only workflow; every job's `needs` is pinned; its header, the `detect`, `deps` and `ci-ok` jobs and every job's condition are the reviewed ones; nothing uses `continue-on-error`, `shell:`, `defaults:` or quoted or spaced keys; `ci-ok` waits on every job, fails if any failed or was cancelled, and fails for a PR whose base isn't `main`.",
+        "A test fails on any HTTP entry point outside `src/app/api/`: a `route.ts`, a metadata route handler (numbered variants included), `src/pages/`, a root `app/`, or any mention of `\"use server\"` in the repo's code.",
+        "`scripts/lockfile-check.mjs` (Node built-ins only) runs in CI's `deps` job before `npm ci --ignore-scripts` and again on the installed tree; every job that installs with scripts waits for it. It fails if npm config, a root binding.gyp or an unreviewed package.json key could change installs; if a lockfile entry isn't the registry tarball its name and version say, or nothing depends on it; if two packages claim the same command; if a version spec isn't a registry range; if root install scripts change; if what npm fetched or installed differs from the lockfile; or if a package outside the allowlist runs install scripts. Its tests cover each check, fixtures for each problem, and the exit codes.",
+        "CONTRIBUTING and `/finish-task` list the same risky-PR rule, and a test checks that they agree. It covers new packages, weakened tests, alert dismissals, metadata routes and `.gitleaksignore`, and changes requested by someone outside the team. PRs from outside the team always wait for the lead, and `/address-review` acts only on the team's comments. `/finish-task`, `/fix-ci` and `/address-review` check the rule again after any later push. `/review-pr` installs a PR with `--ignore-scripts` until the lockfile test passes. CODEOWNERS requests the lead on dependency, secret-scan, service and auth files. PLAN §4, §11 and §12 match.",
+        "T37 is added to `scripts/backlog.json`.",
+        "`npm run verify` and CI pass."
+      ],
+      "refs": "PLAN §11, §12; CONTRIBUTING.md"
     }
   ]
 }

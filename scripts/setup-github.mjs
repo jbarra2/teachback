@@ -9,6 +9,8 @@
  *                                             # (run after teammates accept their invites)
  *   node scripts/setup-github.mjs --protect   # security settings + main-branch ruleset
  *                                             # (run after T01 is merged; needs repo admin)
+ *   node scripts/setup-github.mjs --check-protect  # compare the live ruleset with
+ *                                             # scripts/protect-main-ruleset.json (reads only)
  *
  * Safe to re-run: labels are upserted, and milestones/issues that already exist
  * (issues matched by their "Txx" title prefix) are reused, not duplicated.
@@ -17,12 +19,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rulesetDifferences } from "./ruleset-check.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flags = new Set(process.argv.slice(2));
 const DRY = flags.has("--dry-run");
 const ASSIGN = flags.has("--assign");
 const PROTECT = flags.has("--protect");
+const CHECK_PROTECT = flags.has("--check-protect");
 
 const backlog = JSON.parse(
   readFileSync(path.join(root, "scripts", "backlog.json"), "utf8"),
@@ -175,6 +179,41 @@ if (ASSIGN) {
   process.exit(problems ? 1 : 0);
 }
 
+// ---------- main-branch ruleset ----------
+// scripts/protect-main-ruleset.json, pinned by tests/tooling/project-config.test.ts.
+// No approval: PRs merge on green checks, and the lead reviews teammates' risky PRs by team rule
+// (CONTRIBUTING, "Reviews"). `ci-ok` must come from GitHub Actions (app 15368), which stops a
+// hand-posted commit status from passing as ci-ok. It doesn't stop a PR from changing ci.yml
+// itself (a PR's CI runs the PR's own workflow), so CI files need the lead's review.
+const ruleset = JSON.parse(
+  readFileSync(path.join(root, "scripts", "protect-main-ruleset.json"), "utf8"),
+);
+
+/** How the live ruleset differs from the reviewed file (reads only). */
+function liveRulesetDifferences() {
+  const list = ghJson(["api", `repos/${repo}/rulesets`]) || [];
+  const found = list.find((r) => r.name === ruleset.name);
+  if (!found) return null;
+  return rulesetDifferences(
+    ruleset,
+    ghJson(["api", `repos/${repo}/rulesets/${found.id}`]),
+  );
+}
+
+// ---------- --check-protect mode (reads only) ----------
+if (CHECK_PROTECT) {
+  const diffs = liveRulesetDifferences();
+  if (diffs === null)
+    fail(`No ruleset named "${ruleset.name}". Run with --protect.`);
+  for (const d of diffs) console.log(`  ! ${d}`);
+  console.log(
+    diffs.length
+      ? `\nThe live ruleset differs (${diffs.length}). Fix it in Settings → Rules → Rulesets → ${ruleset.name}.`
+      : "\nThe live ruleset matches scripts/protect-main-ruleset.json.",
+  );
+  process.exit(diffs.length ? 1 : 0);
+}
+
 // ---------- --protect mode ----------
 if (PROTECT) {
   const steps = [
@@ -258,59 +297,19 @@ if (PROTECT) {
         ),
     },
     {
-      name: "Ruleset 'protect main': PR + 1 approval, ci-ok, CodeQL, no force-push/deletion",
+      name: "Ruleset 'protect main': PR (no approval needed), ci-ok, CodeQL, no force-push/deletion",
       manual:
-        "Settings → Rules → Rulesets → New branch ruleset (target the default branch)",
+        "Settings → Rules → Rulesets: make 'protect main' match scripts/protect-main-ruleset.json (--check-protect lists the differences)",
       run: () => {
-        const existing = ghJson(["api", `repos/${repo}/rulesets`]) || [];
-        if (existing.some((r) => r.name === "protect main")) return "exists";
-        return gh(
-          ["api", "-X", "POST", `repos/${repo}/rulesets`, "--input", "-"],
-          {
-            allowFail: true,
-            input: JSON.stringify({
-              name: "protect main",
-              target: "branch",
-              enforcement: "active",
-              conditions: {
-                ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] },
-              },
-              rules: [
-                { type: "deletion" },
-                { type: "non_fast_forward" },
-                {
-                  type: "pull_request",
-                  parameters: {
-                    required_approving_review_count: 1,
-                    dismiss_stale_reviews_on_push: true,
-                    require_code_owner_review: false,
-                    require_last_push_approval: false,
-                    required_review_thread_resolution: false,
-                  },
-                },
-                {
-                  type: "required_status_checks",
-                  parameters: {
-                    strict_required_status_checks_policy: false,
-                    required_status_checks: [{ context: "ci-ok" }],
-                  },
-                },
-                {
-                  type: "code_scanning",
-                  parameters: {
-                    code_scanning_tools: [
-                      {
-                        tool: "CodeQL",
-                        security_alerts_threshold: "high_or_higher",
-                        alerts_threshold: "errors",
-                      },
-                    ],
-                  },
-                },
-              ],
-            }),
-          },
-        );
+        const diffs = liveRulesetDifferences();
+        if (diffs === null)
+          return gh(
+            ["api", "-X", "POST", `repos/${repo}/rulesets`, "--input", "-"],
+            { allowFail: true, input: JSON.stringify(ruleset) },
+          );
+        // An existing ruleset is never overwritten: show how it drifted, and fix it by hand.
+        for (const d of diffs) console.log(`    ! ${d}`);
+        return diffs.length ? null : "exists";
       },
     },
   ];
@@ -332,7 +331,7 @@ if (PROTECT) {
       ? `\n${failed} step(s) need doing by hand (see above).`
       : "\nRepository protections are on.",
   );
-  process.exit(0);
+  process.exit(failed ? 1 : 0);
 }
 
 // ---------- labels ----------
