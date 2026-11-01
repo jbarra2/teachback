@@ -127,38 +127,61 @@ section("2. Environment (.env)");
 let example;
 try {
   example = readFileSync(".env.example", "utf8");
-} catch {
-  die(".env.example is missing from the repo.", "Pull the latest main.");
+} catch (error) {
+  if (error.code === "ENOENT")
+    die(".env.example is missing from the repo.", "Pull the latest main.");
+  die(
+    `Setup can't read .env.example (${error.code ?? error.message}).`,
+    "Restore it with `git checkout -- .env.example`, then re-run.",
+  );
 }
 // .env is opened once, and every later step uses that handle, so another process can't swap the
 // file between a check and a write. O_CREAT without O_TRUNC creates it if it's missing (owner-only,
 // since it holds secrets) and never empties one that's there. An empty .env counts as new.
+const moveAway = "Move it away so setup can make a new .env.";
 let fd;
 try {
   fd = openSync(".env", constants.O_RDWR | constants.O_CREAT, 0o600);
 } catch (error) {
+  // Not "move it away" for a read-only .env: a new one would lose the keys in this one.
+  const readOnly = ["EACCES", "EPERM", "EROFS"].includes(error.code);
   die(
     `Setup can't open or create .env (${error.code ?? error.message}).`,
-    "Setup reads and writes .env: check that you can write to this folder and to .env, or move .env away so setup makes a new one.",
+    readOnly
+      ? "Setup needs to write .env: make it (and this folder) writable, with `chmod u+w .env` or by unticking Read-only in its Properties, then re-run."
+      : error.code === "EISDIR"
+        ? moveAway
+        : "Check that you can write to this folder and to .env, then re-run.",
   );
 }
 // Windows opens a folder too, and a link can lead to a device. fstat checks the open handle itself.
 const envStat = fstatSync(fd);
 if (!envStat.isFile()) {
   closeSync(fd);
-  die(
-    ".env isn't a regular file.",
-    "Move it away so setup can make a new .env.",
-  );
+  die(".env isn't a regular file.", moveAway);
 }
 const before = readFileSync(fd, "utf8");
 let env = before === "" ? example : before;
 if (before === "") ok("Created .env from .env.example");
 else ok(".env already exists (not overwritten)");
 // An older setup copied .env.example's mode, often 0644. Windows has no such bits to change.
+// It runs before anything is written: if the chmod fails (a .env someone else owns), setup stops
+// rather than put the secret in a file others can read.
 if (!isWin && (envStat.mode & 0o077) !== 0) {
-  fchmodSync(fd, 0o600);
-  if (before !== "") ok("Made .env readable by you only");
+  try {
+    fchmodSync(fd, 0o600);
+  } catch (error) {
+    die(
+      `Setup can't make .env readable by you only (${error.code ?? error.message}).`,
+      "Make sure .env is yours and on a disk that keeps Unix permissions (not FAT or exFAT), or move it away so setup makes a new one, then re-run.",
+    );
+  }
+  // Some disks (WSL's /mnt/c) accept the chmod but keep no Unix permissions.
+  if ((fstatSync(fd).mode & 0o077) !== 0)
+    warn(
+      "This disk doesn't keep Unix permissions, so other users may be able to read .env",
+    );
+  else if (before !== "") ok("Made .env readable by you only");
 }
 
 const secretLine = env.match(/^BETTER_AUTH_SECRET=(.*)$/m);

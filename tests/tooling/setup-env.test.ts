@@ -12,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { repoRoot as root, tempDirs } from "../helpers/temp-dirs";
 
@@ -21,7 +22,8 @@ import { repoRoot as root, tempDirs } from "../helpers/temp-dirs";
 // docker-compose.yml there, every step after .env is skipped.
 vi.setConfig({ testTimeout: 60_000 });
 
-const dirs = tempDirs("teachback-setup-env-");
+// Not "teachback-setup-…": setup-prereqs.test.ts clears old folders with that prefix.
+const dirs = tempDirs("teachback-dotenv-");
 afterAll(() => dirs.removeAll());
 
 const example = readFileSync(path.join(root, ".env.example"), "utf8");
@@ -64,16 +66,50 @@ function project() {
   return { dir, env: path.join(dir, ".env") };
 }
 
-function runSetup(dir: string) {
+// A preload that makes file writes or chmod misbehave, for the paths a healthy disk never takes.
+// Only descriptors above 2, so the script's own output is untouched. syncBuiltinESMExports makes
+// setup.mjs's `import { writeSync } from "node:fs"` see the patched function.
+const FAULTS = `
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const fault = process.env.TEACHBACK_FS_FAULT;
+const writeSync = fs.writeSync;
+let writes = 0;
+if (fault === "short-writes" || fault === "disk-full")
+  fs.writeSync = (fd, buffer, offset, length, position) => {
+    if (fd <= 2) return writeSync(fd, buffer, offset, length, position);
+    writes += 1;
+    if (fault === "disk-full" && writes > 1)
+      throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+    return writeSync(fd, buffer, offset, Math.min(length, 7), position);
+  };
+if (fault === "chmod-refused")
+  fs.fchmodSync = () => {
+    throw Object.assign(new Error("EPERM: operation not permitted, fchmod"), { code: "EPERM" });
+  };
+// A disk that keeps no Unix permissions (WSL's /mnt/c): chmod succeeds and changes nothing.
+if (fault === "chmod-ignored") fs.fchmodSync = () => {};
+syncBuiltinESMExports();
+`;
+type Fault = "short-writes" | "disk-full" | "chmod-refused" | "chmod-ignored";
+
+function runSetup(dir: string, fault?: Fault) {
   // Windows keeps the variable as `Path`; drop every spelling so only the stub folder is searched.
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const key of Object.keys(env))
     if (key.toUpperCase() === "PATH") delete env[key];
   env.PATH = path.join(dir, "bin");
+  const nodeArgs: string[] = [];
+  if (fault) {
+    const preload = path.join(dir, "faults.mjs");
+    writeFileSync(preload, FAULTS);
+    nodeArgs.push("--import", pathToFileURL(preload).href);
+    env.TEACHBACK_FS_FAULT = fault;
+  }
   // spawnSync blocks the worker, so Vitest's timeout can't stop a hung run; this one can.
   const res = spawnSync(
     process.execPath,
-    [path.join(dir, "scripts/setup.mjs"), "--skip-verify"],
+    [...nodeArgs, path.join(dir, "scripts/setup.mjs"), "--skip-verify"],
     { env, encoding: "utf8", timeout: 30_000 },
   );
   expect(res.error).toBeUndefined();
@@ -134,6 +170,29 @@ describe("setup.mjs creates .env when there is none", () => {
     );
   });
 
+  // `touch .env` makes a 0644 file, and the secret is about to go into it.
+  it.skipIf(process.platform === "win32")(
+    "makes an existing empty .env readable by its owner only before filling it",
+    () => {
+      const { dir, env } = project();
+      writeFileSync(env, "");
+      chmodSync(env, 0o644);
+      expect(runSetup(dir).status).toBe(0);
+      expect(statSync(env).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  it("writes the whole file even when the disk takes a few bytes at a time", () => {
+    const { dir, env } = project();
+    const res = runSetup(dir, "short-writes");
+    expect(res.status).toBe(0);
+    const written = readFileSync(env, "utf8");
+    expect(secretOf(written)).toMatch(GENERATED);
+    expect(written.replace(SECRET_LINE, "")).toBe(
+      example.replace(SECRET_LINE, ""),
+    );
+  });
+
   // Windows ignores these mode bits: there a new file gets the folder's permissions.
   it.skipIf(process.platform === "win32")(
     "makes the new .env readable by its owner only",
@@ -159,7 +218,10 @@ describe("setup.mjs creates .env when there is none", () => {
     const res = runSetup(dir);
     expect(res.status).toBe(0);
     expect(res.stdout).toContain("✓ .env already exists (not overwritten)");
-    expect(res.stdout).not.toMatch(/Generated|Added/);
+    // On Windows too: there are no mode bits to fix, so there's nothing to report or warn about.
+    expect(res.stdout).not.toMatch(
+      /Generated|Added|readable by you|Unix permissions/,
+    );
     expect(readFileSync(env, "utf8")).toBe(first);
   });
 });
@@ -180,17 +242,19 @@ describe("setup.mjs updates an existing .env without overwriting a value", () =>
   });
 
   // An older setup copied .env.example's mode (often 0644), so others could read the secret.
-  it.skipIf(process.platform === "win32")(
-    "makes an existing .env readable by its owner only, without changing it",
-    () => {
+  // Any group or other bit counts: 0640 is readable by everyone in the file's group.
+  it.skipIf(process.platform === "win32").each([0o644, 0o640, 0o604, 0o660])(
+    "makes an existing .env with mode %o readable by its owner only, without changing it",
+    (mode) => {
       const { dir, env } = project();
       writeFileSync(env, complete);
-      chmodSync(env, 0o644);
+      chmodSync(env, mode);
       const res = runSetup(dir);
       expect(res.status).toBe(0);
       expect(res.stdout).toContain("✓ Made .env readable by you only");
-      expect(statSync(env).mode & 0o777).toBe(0o600);
+      // Content before mode: CodeQL's file-system-race query flags a read after a stat.
       expect(readFileSync(env, "utf8")).toBe(complete);
+      expect(statSync(env).mode & 0o777).toBe(0o600);
       // Already private: nothing to say the next time.
       expect(runSetup(dir).stdout).not.toContain("readable by you only");
     },
@@ -297,14 +361,17 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
         ? "✖ .env isn't a regular file."
         : "✖ Setup can't open or create .env (EISDIR).",
     );
-    expect(res.stderr).toContain("How to fix:");
+    expect(res.stderr).toContain(
+      "How to fix: Move it away so setup can make a new .env.",
+    );
     // die()'s message, not a crash.
     expect(res.stderr).not.toMatch(/^\s+at /m);
     expect(readdirSync(env)).toEqual([]);
   });
 
   // The type check on POSIX: a link to a device opens fine, and only fstat sees it isn't a file.
-  it.skipIf(process.platform === "win32")(
+  // Not as root: if the check broke, root's chmod would change the real /dev/null.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "stops with a message when .env leads to something that isn't a file",
     () => {
       const { dir, env } = project();
@@ -316,13 +383,71 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
     },
   );
 
-  // CodeQL's file-system-race check pairs any two calls on the same path. Naming .env once, in
-  // the open, keeps every read and write on that handle, so another process can't swap the file.
+  // CodeQL's file-system-race query pairs a check of a path (open, exists, stat, access) with a
+  // later read, write or open of the same path. Naming .env once, in the open, keeps every read
+  // and write on that handle, so another process can't swap the file in between.
+  // The open itself is pinned too: no O_TRUNC (which would empty an existing .env), and 0600 from
+  // the start, which the later chmod would otherwise hide.
   it("names .env in one place, the open: everything else uses the handle", () => {
     const source = readFileSync(path.join(root, "scripts/setup.mjs"), "utf8");
     expect(source.match(/(["'`])\.env\1/g)).toEqual(['".env"']);
-    expect(source).toMatch(/openSync\(\s*"\.env",/);
+    expect(source).toMatch(
+      /openSync\(\s*"\.env",\s*constants\.O_RDWR \| constants\.O_CREAT,\s*0o600,?\s*\)/,
+    );
   });
+
+  it("stops with a message when the disk fills up, and keeps what was in .env", () => {
+    const { dir, env } = project();
+    const placeholder = complete.replace(
+      SECRET_LINE,
+      "BETTER_AUTH_SECRET=replace-me",
+    );
+    writeFileSync(env, placeholder);
+    const res = runSetup(dir, "disk-full");
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("✖ Setup couldn't write .env (ENOSPC).");
+    expect(res.stderr).not.toMatch(/^\s+at /m);
+    // Written from the start and only then cut: the first bytes went in (the same as before),
+    // and nothing was emptied, so every value is still there.
+    expect(readFileSync(env, "utf8")).toBe(placeholder);
+  });
+
+  // fchmod fails on a file someone else owns: the secret must not go into it.
+  it.skipIf(process.platform === "win32")(
+    "stops before writing when .env can't be made private",
+    () => {
+      const { dir, env } = project();
+      const placeholder = complete.replace(
+        SECRET_LINE,
+        "BETTER_AUTH_SECRET=replace-me",
+      );
+      writeFileSync(env, placeholder);
+      chmodSync(env, 0o644);
+      const res = runSetup(dir, "chmod-refused");
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(
+        "✖ Setup can't make .env readable by you only (EPERM).",
+      );
+      expect(res.stderr).not.toMatch(/^\s+at /m);
+      expect(readFileSync(env, "utf8")).toBe(placeholder);
+    },
+  );
+
+  // The mode can't be fixed there, and saying it was would be wrong. Setup carries on and says so.
+  it.skipIf(process.platform === "win32")(
+    "warns instead of claiming success on a disk that keeps no Unix permissions",
+    () => {
+      const { dir, env } = project();
+      writeFileSync(env, complete);
+      chmodSync(env, 0o644);
+      const res = runSetup(dir, "chmod-ignored");
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain(
+        "! This disk doesn't keep Unix permissions, so other users may be able to read .env",
+      );
+      expect(res.stdout).not.toContain("✓ Made .env readable by you only");
+    },
+  );
 
   // Root can write any file, so this needs a normal user (as on CI and a laptop).
   it.skipIf(process.getuid?.() === 0)(
@@ -341,6 +466,10 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
         expect(res.stderr).toMatch(
           /✖ Setup can't open or create \.env \((EACCES|EPERM)\)\./,
         );
+        // Make it writable, not "move it away": a new .env would lose the API key in this one.
+        expect(res.stderr).toContain(
+          "How to fix: Setup needs to write .env: make it (and this folder) writable",
+        );
         expect(res.stderr).not.toMatch(/^\s+at /m);
         expect(readFileSync(env, "utf8")).toBe(placeholder);
       } finally {
@@ -355,6 +484,17 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
     const res = runSetup(dir);
     expect(res.status).toBe(1);
     expect(res.stderr).toContain("✖ .env.example is missing from the repo.");
+    expect(() => statSync(env)).toThrow();
+  });
+
+  it("says why when .env.example is there but can't be read", () => {
+    const { dir, env } = project();
+    rmSync(path.join(dir, ".env.example"));
+    mkdirSync(path.join(dir, ".env.example"));
+    const res = runSetup(dir);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("✖ Setup can't read .env.example (EISDIR).");
+    expect(res.stderr).not.toContain("missing");
     expect(() => statSync(env)).toThrow();
   });
 });
