@@ -7,7 +7,17 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  ftruncateSync,
+  openSync,
+  readFileSync,
+  writeSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -114,36 +124,113 @@ else ok("GitHub CLI signed in");
 
 // 2. Environment file -------------------------------------------------------
 section("2. Environment (.env)");
-if (!existsSync(".env.example"))
-  die(".env.example is missing from the repo.", "Pull the latest main.");
-if (!existsSync(".env")) {
-  copyFileSync(".env.example", ".env");
-  ok("Created .env from .env.example");
-} else ok(".env already exists (not overwritten)");
+let example;
+try {
+  example = readFileSync(".env.example", "utf8");
+} catch (error) {
+  if (error.code === "ENOENT")
+    die(".env.example is missing from the repo.", "Pull the latest main.");
+  die(
+    `Setup can't read .env.example (${error.code ?? error.message}).`,
+    "Restore it with `git checkout -- .env.example`, then re-run.",
+  );
+}
+// .env is opened once, and every later step uses that handle, so another process can't swap the
+// file between a check and a write. O_CREAT without O_TRUNC creates it if it's missing (owner-only,
+// since it holds secrets) and never empties one that's there. An empty .env counts as new.
+const moveAway = "Move it away so setup can make a new .env.";
+let fd;
+try {
+  fd = openSync(".env", constants.O_RDWR | constants.O_CREAT, 0o600);
+} catch (error) {
+  // Not "move it away" for a read-only .env: a new one would lose the keys in this one.
+  const readOnly = ["EACCES", "EPERM", "EROFS"].includes(error.code);
+  const makeWritable = isWin
+    ? "untick Read-only in its Properties"
+    : 'run `chmod u+w .env`, or `sudo chown "$(id -un)" .env` if `ls -l .env` shows it isn\'t yours';
+  die(
+    `Setup can't open or create .env (${error.code ?? error.message}).`,
+    readOnly
+      ? `Setup needs to write .env: make it (and this folder) writable (${makeWritable}), then re-run.`
+      : error.code === "EISDIR"
+        ? moveAway
+        : "Check that you can write to this folder and to .env, then re-run.",
+  );
+}
+// Windows opens a folder too, and a link can lead to a device. fstat checks the open handle itself.
+let envStat;
+let before;
+try {
+  envStat = fstatSync(fd);
+  if (envStat.isFile()) before = readFileSync(fd, "utf8");
+} catch (error) {
+  die(
+    `Setup can't read .env (${error.code ?? error.message}).`,
+    "Close any program that has .env open or locked, then re-run.",
+  );
+}
+if (!envStat.isFile()) {
+  closeSync(fd);
+  die(".env isn't a regular file.", moveAway);
+}
+let env = before === "" ? example : before;
+if (before === "") ok("Created .env from .env.example");
+else ok(".env already exists (not overwritten)");
+// An older setup copied .env.example's mode, often 0644. Windows has no such bits to change.
+// It runs before anything is written: if the chmod fails (a .env someone else owns), setup stops
+// rather than put the secret in a file others can read.
+if (!isWin && (envStat.mode & 0o077) !== 0) {
+  try {
+    fchmodSync(fd, 0o600);
+  } catch (error) {
+    die(
+      `Setup can't make .env readable by you only (${error.code ?? error.message}).`,
+      "Make sure .env is yours and on a disk that keeps Unix permissions (not FAT or exFAT), or move it away so setup makes a new one, then re-run.",
+    );
+  }
+  // Some disks (WSL's /mnt/c) accept the chmod but keep no Unix permissions.
+  if ((fstatSync(fd).mode & 0o077) !== 0)
+    warn(
+      "This disk doesn't keep Unix permissions, so other users may be able to read .env",
+    );
+  else if (before !== "") ok("Made .env readable by you only");
+}
 
-let env = readFileSync(".env", "utf8");
 const secretLine = env.match(/^BETTER_AUTH_SECRET=(.*)$/m);
 if (!secretLine || ["", "replace-me"].includes(secretLine[1].trim())) {
   const secret = randomBytes(32).toString("base64");
   env = secretLine
     ? env.replace(/^BETTER_AUTH_SECRET=.*$/m, `BETTER_AUTH_SECRET=${secret}`)
     : `${env.trimEnd()}\nBETTER_AUTH_SECRET=${secret}\n`;
-  writeFileSync(".env", env);
   ok("Generated BETTER_AUTH_SECRET");
 }
 // Add any variables that were added to .env.example since this .env was created (never overwrite).
-const exampleVars =
-  readFileSync(".env.example", "utf8").match(/^[A-Z0-9_]+=.*$/gm) || [];
+const exampleVars = example.match(/^[A-Z0-9_]+=.*$/gm) || [];
 const missing = exampleVars.filter(
   (line) => !new RegExp(`^${line.split("=")[0]}=`, "m").test(env),
 );
 if (missing.length) {
   env = `${env.trimEnd()}\n\n# Added by setup from .env.example\n${missing.join("\n")}\n`;
-  writeFileSync(".env", env);
   ok(
     `Added ${missing.length} new variable(s) from .env.example: ${missing.map((l) => l.split("=")[0]).join(", ")}`,
   );
 }
+if (env !== before) {
+  // Write from the start, then cut off what's left of the old text. Never truncated first, so a
+  // failed write can't leave an existing .env empty.
+  const bytes = Buffer.from(env, "utf8");
+  try {
+    for (let at = 0; at < bytes.length;)
+      at += writeSync(fd, bytes, at, bytes.length - at, at);
+    ftruncateSync(fd, bytes.length);
+  } catch (error) {
+    die(
+      `Setup couldn't write .env (${error.code ?? error.message}).`,
+      "Check that the disk isn't full and that .env still has your values, then re-run.",
+    );
+  }
+}
+closeSync(fd);
 const provider = (env.match(/^AI_PROVIDER=(.*)$/m) || [])[1]?.trim();
 const apiKey = (env.match(/^ANTHROPIC_API_KEY=(.*)$/m) || [])[1]?.trim();
 if (provider === "anthropic" && !apiKey)

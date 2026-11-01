@@ -789,6 +789,26 @@
         "`npm run verify` and CI pass, and CI on main is green again after the merge."
       ],
       "refs": "PLAN §8, §10"
+    },
+    {
+      "id": "T39",
+      "title": "Fix code scanning alerts: pin gitleaks-action, create .env in one step",
+      "track": "lead",
+      "milestone": "M1",
+      "date": "Sun 11/1",
+      "blockedBy": [],
+      "critical": false,
+      "security": true,
+      "goal": "Close the three open code scanning alerts. CI runs a third-party action from a movable tag (`gitleaks/gitleaks-action@v2`, alert #1), and `scripts/setup.mjs` checks whether `.env` exists and then writes it in separate steps, so another process could change the file in between (alerts #2 and #3, `js/file-system-race`).",
+      "acceptance": [
+        "`ci.yml` pins `gitleaks/gitleaks-action` to the full commit SHA of v3.0.0, with the version in a comment, and the `ci.yml` hash in `tests/tooling/project-config.test.ts` is updated.",
+        "A test fails if any action not owned by GitHub (`actions/*`, `github/*`) is used without a full commit SHA.",
+        "`scripts/setup.mjs` opens `.env` once (creating it if it's missing, never emptying one) and reads and writes it only through that handle, with no separate existence check. An empty `.env` is filled from `.env.example`. On macOS and Linux, `.env` ends up readable by its owner only (0600), including one an older setup made. A `.env` that can't be opened, isn't a regular file, or can't be written stops setup with a clear message.",
+        "Tests cover a new `.env`, an empty one, an existing complete one (left byte-identical and unwritten), a `replace-me` or missing secret, new variables from `.env.example`, a re-run, a read-only `.env`, a folder or device at `.env`, and a missing `.env.example`; the secret is random and never printed.",
+        "T39 is added to `scripts/backlog.json`.",
+        "`npm run verify` and CI pass, and CodeQL reports alerts #1–#3 as fixed."
+      ],
+      "refs": "TESTING §5, §8"
     }
   ]
 }

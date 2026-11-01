@@ -169,7 +169,36 @@ describe("toolchain: one Node and npm for the team and CI", () => {
   it("ci.yml is exactly the reviewed workflow", () => {
     expect(
       createHash("sha256").update(ci.replace(/\r\n/g, "\n")).digest("hex"),
-    ).toBe("a8db06151e934f52b45ea9040f32b034e88d0aba04719e0812a98fada3e612b5");
+    ).toBe("7e7f721d4e3ee59c7a1a8b47f3e23bae535b3105c99b5fbbe8db5e4295fbc9d2");
+  });
+
+  // A tag can be moved to new code, which would then run with this workflow's token and secrets.
+  // So an action from outside GitHub's own `actions/` and `github/` is pinned to a full commit SHA,
+  // with its release in a comment for the reader (CodeQL's actions/unpinned-tag).
+  it("pins every action from outside GitHub to a full commit SHA", () => {
+    const workflow = load(ci) as {
+      jobs: Record<string, { uses?: string; steps?: { uses?: string }[] }>;
+    };
+    const refs = Object.values(workflow.jobs)
+      .flatMap((job) => [job.uses, ...(job.steps ?? []).map((s) => s.uses)])
+      .filter((ref) => ref !== undefined);
+    const outside = refs.filter((ref) => !/^(actions|github)\//.test(ref));
+    // The current set, so the check can't pass by finding nothing.
+    expect(outside.map((ref) => ref.split("@")[0])).toEqual([
+      "gitleaks/gitleaks-action",
+    ]);
+    const releases = new Map(
+      [...ci.matchAll(/uses: (\S+) # (v\d+\.\d+\.\d+)$/gm)].map((m) => [
+        m[1],
+        m[2],
+      ]),
+    );
+    for (const ref of outside) {
+      expect(ref).toMatch(/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/);
+      expect(releases.get(ref), `${ref} needs a "# vX.Y.Z" comment`).toMatch(
+        /^v\d/,
+      );
+    }
   });
 
   it("ci.yml is the only workflow, and nothing in it may fail quietly", () => {
