@@ -106,8 +106,10 @@ describe("withIntegrity (the hash check on Scalar's script tag)", () => {
   });
 
   it("keeps attributes after src, such as a CSP nonce (T14)", () => {
-    expect(withIntegrity(tag.replace(">", ' nonce="abc">') + "</script>")).toBe(
-      checked.replace(">", ' nonce="abc">') + "</script>",
+    expect(
+      withIntegrity(`<script src="${SCALAR_BUNDLE_URL}" nonce="abc"></script>`),
+    ).toBe(
+      `<script src="${SCALAR_BUNDLE_URL}" integrity="${SCALAR_BUNDLE_INTEGRITY}" crossorigin="anonymous" nonce="abc"></script>`,
     );
   });
 });
