@@ -12,7 +12,14 @@ function createClient(): PrismaClient {
     throw new Error(
       "DATABASE_URL is not set. Run `npm run setup`, which creates .env from .env.example.",
     );
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  // pg-pool would wait forever for a free connection or a connect; fail the request instead.
+  return new PrismaClient({
+    adapter: new PrismaPg({
+      connectionString,
+      max: 10,
+      connectionTimeoutMillis: 5_000,
+    }),
+  });
 }
 
 export const db = cache.teachbackDb ?? createClient();

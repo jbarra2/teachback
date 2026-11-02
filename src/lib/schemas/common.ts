@@ -14,6 +14,12 @@ export const LIMITS = {
   jsonBodyBytes: 64 * 1024,
   uploadBytes: 4 * 1024 * 1024,
   noteChars: 200_000,
+  // Accounts (T06). Passwords count UTF-16 units, as Better Auth does; the name counts characters.
+  passwordMin: 8,
+  passwordMax: 128,
+  userName: 100,
+  // RFC 5321's longest usable address.
+  email: 254,
 } as const;
 
 /** Prisma's `cuid()`: "c" and 24 lowercase letters or digits. */

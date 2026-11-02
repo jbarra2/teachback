@@ -181,3 +181,45 @@ Making sure the schema can't drift silently from what Better Auth expects, from 
 
 **What I learned:**
 A library's defaults can be unsafe for our app even when its docs look fine, so I read the installed source. That's how I found Better Auth's public fallback secret and the sign-up that isn't atomic without `transaction: true`. Prisma 7 also changed a lot from earlier versions: it no longer reads `.env` itself, the database URL moved to `prisma.config.ts`, and the client is generated into our own source folder.
+
+## T06 · Auth + secure API route wrapper (withApi) (#6) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** Real accounts and the wrapper every API route uses.
+
+- `withApi()` in `src/lib/api/` handles the cross-cutting checks:
+  - the session check, from the request's own headers;
+  - the cross-site Origin check;
+  - body limits, checked against Content-Length and again while reading;
+  - zod errors as 400s;
+  - generic 500s with a request id.
+- Better Auth is mounted at `/api/auth/*`, but only for the four endpoints the app uses:
+  - bodies are checked with strict schemas;
+  - tokens are stripped from responses;
+  - rate limiting is stored in a new `rateLimit` table.
+- Around them:
+  - `src/proxy.ts` sends signed-out visitors to `/login?next=…`;
+  - `src/lib/auth-client.ts` is for T15's forms;
+  - `runAfterResponse` handles background work;
+  - a small safe logger;
+  - per-request checks that refuse unsafe production settings.
+
+**Skills & tools:** Next.js 16 route handlers and proxy, Better Auth, Prisma 7 migrations, zod 4, Vitest with Better Auth's in-memory adapter, Docker PostgreSQL for live checks, threat modelling, mutation testing, security and test reviews
+
+**Asked Claude for:** Handle the open PRs first, then build T06 from a plan with a threat model and tests written first. Partway through, I chose to hide account existence at sign-up, and asked for security concerns to be fixed as they came up. After three review rounds, I moved on to `/test-task`, and asked for the open follow-ups to be posted where the next tasks will see them.
+
+**Decided / dropped:**
+
+- Mounted only sign-up, sign-in, sign-out and get-session. Every other Better Auth endpoint is a 404 before the library or the database sees the request.
+- Turned off sign-in at sign-up (`autoSignIn: false`), so sign-up answers the same for new and existing emails. Better Auth's stand-in answer still differed from a real one, so every successful sign-up now returns the same fixed body.
+- Rate limits read the client's IP only from a header the host sets. A client can send any `X-Forwarded-For`, so in production a request without that header is refused.
+- Checked production settings on each request, not at import, because CI builds with test values in production mode.
+- The proxy checks the session against the database, not just whether a cookie exists, so a stale cookie can't cause a redirect loop.
+- Kept the unit tests on the in-memory adapter and ran the PostgreSQL checks live. T07 commits those as integration tests.
+
+**Hardest part, and how I solved it:**
+The bugs that mattered were in places where my tests didn't match the real environment. The `next` redirect helper passed every attack case in the tests, but a review found that dot segments (`/.//evil.example`) parse as same-origin and still come out as `//evil.example`, another site. I fixed it by checking the path the helper returns, not just the URL it parsed. Sign-out with no body passed in tests but failed under Next, which gives every POST a body stream, so I made an empty body count as no body and proved it with a test over real HTTP.
+
+**What I learned:**
+Security defaults can change with the environment. Better Auth skips its own origin check under `NODE_ENV=test` and trusts a single `X-Forwarded-For` value, so I set those options explicitly and tested them. I also learned to distrust test fakes in exactly the place a check depends on: the in-memory adapter, hand-built requests, and mocked sessions each hid a gap that only a live run against PostgreSQL and real HTTP showed.

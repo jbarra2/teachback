@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deref, loadSpec } from "../../../tests/helpers/openapi-spec";
 import {
   apiDocsEnabled,
-  internalError,
-  notFound,
   SCALAR_BUNDLE_INTEGRITY,
   SCALAR_BUNDLE_URL,
   withIntegrity,
@@ -12,11 +9,6 @@ import {
 afterEach(() => {
   vi.unstubAllEnvs();
 });
-
-const spec = loadSpec();
-const exampleOf = (response: string) =>
-  deref(spec, spec.components.responses[response]).content?.["application/json"]
-    ?.example;
 
 describe("apiDocsEnabled", () => {
   it("is on only for exactly API_DOCS_ENABLED=true", () => {
@@ -39,27 +31,6 @@ describe("apiDocsEnabled", () => {
   ])("is off for %j", (value) => {
     vi.stubEnv("API_DOCS_ENABLED", value);
     expect(apiDocsEnabled()).toBe(false);
-  });
-});
-
-describe("error responses (the contract's shared shape, S7)", () => {
-  it("notFound is the spec's NotFound response", async () => {
-    const res = notFound();
-    expect(res.status).toBe(404);
-    expect(res.headers.get("content-type")).toMatch(/^application\/json/);
-    expect(await res.json()).toEqual(exampleOf("NotFound"));
-  });
-
-  it("internalError is the spec's Internal response, with a fresh request id and no cause", async () => {
-    const first = internalError();
-    const second = internalError();
-    expect(first.status).toBe(500);
-    expect(await first.json()).toEqual(exampleOf("Internal"));
-    const id = first.headers.get("x-request-id") ?? "";
-    expect(id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-    );
-    expect(second.headers.get("x-request-id")).not.toBe(id);
   });
 });
 

@@ -30,6 +30,14 @@
 /src/lib/services/          @jbarra2
 /src/lib/auth.ts            @jbarra2
 /src/lib/auth-secret.ts     @jbarra2
+/src/lib/auth-config.ts     @jbarra2
+/src/lib/auth-env.ts        @jbarra2
+/src/lib/log.ts             @jbarra2
+/src/app/api/auth/          @jbarra2
+/src/app/api/courses/       @jbarra2
+/src/app/api/health/        @jbarra2
+/src/app/api/openapi/       @jbarra2
+/src/app/api/docs/          @jbarra2
 /src/lib/db.ts              @jbarra2
 /src/lib/auth-client.ts     @jbarra2
 /src/lib/ai/                @hsheik20
