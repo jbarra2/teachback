@@ -1,6 +1,6 @@
 // The secret Better Auth signs sessions and tokens with (src/lib/auth.ts).
 
-// What Better Auth signs with when no secret is set. Outside production it only warns.
+// What Better Auth signs with when no secret is set. Outside production it uses it without an error.
 const BETTER_AUTH_DEFAULT_SECRET = "better-auth-secret-12345678901234567890";
 const MIN_SECRET_LENGTH = 32;
 

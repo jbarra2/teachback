@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { readAuthSecret } from "./auth-secret";
 
 const GOOD_SECRET = "a-random-test-secret-that-is-long-enough-0123";
-// Better Auth signs with this public value when no secret is set (outside production it only warns).
+// Better Auth signs with this public value when no secret is set (outside production, without an error).
 // Read from the installed package, so an upgrade that changes it fails here instead of passing.
 const BETTER_AUTH_DEFAULT_SECRET = /DEFAULT_SECRET = "([^"]+)"/.exec(
   readFileSync(

@@ -48,10 +48,27 @@ const dynamicImportBans = (sources) =>
 const RAW_UNSAFE = "/^\\$(queryRawUnsafe|executeRawUnsafe)$/";
 const RAW_MESSAGE =
   "Raw SQL built from strings is banned. Use the tagged template db.$queryRaw`...`, which parameterizes values.";
-// Prisma.raw() pastes a string into a $queryRaw template unescaped: Prisma.raw, Prisma["raw"],
-// Prisma[`raw`], `const { raw } = Prisma` and `import { raw }` from any Prisma module.
+// Prisma's SQL helpers (@prisma/client-runtime-utils):
+// - Prisma.raw and Prisma.Sql paste strings into SQL unescaped.
+// - Prisma.sql is typed `sql(strings: readonly string[], ...values)`, so it's only safe as a tag:
+//   called as a function, every string in its array is SQL text.
+// - Prisma.join pastes its separator, prefix and suffix unescaped, so it takes the values only.
+// These bans look for the name `Prisma`, so Prisma can't be renamed, copied, destructured or reached
+// through `* as` or a computed key, and the helpers can't be imported on their own.
 const PRISMA_RAW_MESSAGE =
   "Prisma.raw() puts a string into SQL unescaped. Use Prisma.sql`...` or the tagged db.$queryRaw`...`, which parameterize values.";
+const PRISMA_SQL_MESSAGE =
+  "Use Prisma.sql only as a tagged template (Prisma.sql`...`). Called as a function, it puts every string into SQL unescaped.";
+const PRISMA_JOIN_MESSAGE =
+  "Call Prisma.join in place with the values only: Prisma.join(ids). Its separator, prefix and suffix go into SQL unescaped.";
+const PRISMA_NAME_MESSAGE =
+  "Use Prisma under its own name, with plain member names (Prisma.sql`...`, Prisma.join(ids)): no copies, renames, destructuring or computed keys, so the raw-SQL bans can see it.";
+const PRISMA_HELPERS = "/^(raw|sql|sqltag|join|Sql)$/";
+// $queryRaw and $executeRaw only as a tag, or called with a Prisma.sql`...` written in place. A query
+// held in a variable, an array or anything else can carry raw SQL text.
+const RAW_TAGGED = "/^\\$(queryRaw|executeRaw)$/";
+const RAW_TAGGED_MESSAGE =
+  "Call $queryRaw and $executeRaw as tagged templates (db.$queryRaw`...`), or pass a Prisma.sql`...` written in place. A query from anywhere else can hold raw SQL text.";
 const RAW_UNSAFE_BANS = [
   { selector: `Identifier[name=${RAW_UNSAFE}]`, message: RAW_MESSAGE },
   { selector: `Literal[value=${RAW_UNSAFE}]`, message: RAW_MESSAGE },
@@ -60,104 +77,80 @@ const RAW_UNSAFE_BANS = [
     message: RAW_MESSAGE,
   },
   {
-    selector: 'MemberExpression[object.name="Prisma"][property.name="raw"]',
-    message: PRISMA_RAW_MESSAGE,
-  },
-  {
-    selector: 'MemberExpression[object.name="Prisma"][property.value="raw"]',
+    selector:
+      'MemberExpression[object.name="Prisma"][property.name=/^(raw|Sql)$/]',
     message: PRISMA_RAW_MESSAGE,
   },
   {
     selector:
-      'MemberExpression[object.name="Prisma"] > TemplateLiteral.property > TemplateElement[value.raw="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+      'MemberExpression[object.name="Prisma"][property.name="sql"]:not(TaggedTemplateExpression > .tag)',
+    message: PRISMA_SQL_MESSAGE,
   },
   {
     selector:
-      'VariableDeclarator[init.name="Prisma"] > ObjectPattern > Property[key.name="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+      'CallExpression[callee.object.name="Prisma"][callee.property.name="join"][arguments.length>1]',
+    message: PRISMA_JOIN_MESSAGE,
   },
   {
     selector:
-      'ImportDeclaration[source.value=/prisma/] > ImportSpecifier[imported.name="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+      'MemberExpression[object.name="Prisma"][property.name="join"]:not(CallExpression > .callee)',
+    message: PRISMA_JOIN_MESSAGE,
   },
   {
-    selector:
-      'AssignmentExpression[right.name="Prisma"] > ObjectPattern > Property[key.name="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+    selector: 'MemberExpression[object.name="Prisma"][computed=true]',
+    message: PRISMA_NAME_MESSAGE,
+  },
+  // Copies and destructuring: `const P = Prisma`, `const { sql } = Prisma`, `({ join: j } = Prisma)`.
+  {
+    selector: 'VariableDeclarator[init.name="Prisma"]',
+    message: PRISMA_NAME_MESSAGE,
   },
   {
-    selector:
-      'ExportNamedDeclaration[source.value=/prisma/] > ExportSpecifier[local.name="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+    selector: 'AssignmentExpression[right.name="Prisma"]',
+    message: PRISMA_NAME_MESSAGE,
   },
-  // The bans above look for the name `Prisma`, so it can't be renamed or reached through `* as`.
+  // Renames: on import, on re-export, and when destructuring a module (`const { Prisma: P } = mod`).
   {
     selector: 'ImportSpecifier[imported.name="Prisma"][local.name!="Prisma"]',
-    message:
-      "Import Prisma under its own name, so the Prisma.raw() ban can see it.",
-  },
-  {
-    selector:
-      "ImportDeclaration[source.value=/prisma/] > ImportNamespaceSpecifier",
-    message:
-      "Import the names you use from Prisma modules, not `* as`, so the Prisma.raw() ban can see them.",
-  },
-  {
-    selector:
-      'VariableDeclarator[init.name="Prisma"] > ObjectPattern > Property[key.value="raw"]',
-    message: PRISMA_RAW_MESSAGE,
-  },
-  {
-    selector: 'VariableDeclarator[init.name="Prisma"][id.type="Identifier"]',
-    message:
-      "Use Prisma by its own name, not a copy (`const P = Prisma`), so the Prisma.raw() ban can see it.",
+    message: PRISMA_NAME_MESSAGE,
   },
   {
     selector:
       'ExportNamedDeclaration[source.value=/prisma/] > ExportSpecifier[local.name="Prisma"][exported.name!="Prisma"]',
-    message:
-      "Re-export Prisma under its own name, so the Prisma.raw() ban can see it.",
+    message: PRISMA_NAME_MESSAGE,
+  },
+  {
+    selector:
+      'ObjectPattern > Property[key.name="Prisma"][value.name!="Prisma"]',
+    message: PRISMA_NAME_MESSAGE,
+  },
+  // Whole modules, and the helpers on their own.
+  {
+    selector:
+      "ImportDeclaration[source.value=/prisma/] > ImportNamespaceSpecifier",
+    message: PRISMA_NAME_MESSAGE,
   },
   {
     selector: "ExportAllDeclaration[source.value=/prisma/]",
-    message:
-      "Re-export the names you need from Prisma modules, not `export *`, so the Prisma.raw() ban can see them.",
+    message: PRISMA_NAME_MESSAGE,
   },
   {
-    selector:
-      'AssignmentExpression[right.name="Prisma"] > ObjectPattern > Property[key.value="raw"]',
-    message: PRISMA_RAW_MESSAGE,
+    selector: `ImportDeclaration[source.value=/prisma/] > ImportSpecifier[imported.name=${PRISMA_HELPERS}]`,
+    message: PRISMA_NAME_MESSAGE,
   },
   {
-    selector:
-      'AssignmentExpression[right.name="Prisma"][left.type="Identifier"]',
-    message:
-      "Use Prisma by its own name, not a copy (`P = Prisma`), so the Prisma.raw() ban can see it.",
+    selector: `ExportNamedDeclaration[source.value=/prisma/] > ExportSpecifier[local.name=${PRISMA_HELPERS}]`,
+    message: PRISMA_NAME_MESSAGE,
   },
-  // Prisma.join pastes its separator, prefix and suffix into the SQL unescaped: values only.
+  // $queryRaw/$executeRaw by name or string key, unless it's the tag, or it's called with a
+  // Prisma.sql`...` as its first argument. Catches arrays, variables, .call/.apply and copies.
   {
-    selector:
-      'CallExpression[callee.object.name="Prisma"][callee.property.name="join"][arguments.length>1]',
-    message:
-      "Prisma.join() puts its separator, prefix and suffix into SQL unescaped. Pass the values only: Prisma.join(ids).",
-  },
-  // Called with a plain array instead of as a tagged template, every string in it is SQL text.
-  {
-    selector:
-      'CallExpression[callee.property.name=/^\\$(queryRaw|executeRaw)$/][arguments.0.type="ArrayExpression"]',
-    message: RAW_MESSAGE,
-  },
-  // Prisma.Sql builds a query from raw string parts, exactly like Prisma.raw.
-  {
-    selector: 'MemberExpression[object.name="Prisma"][property.name="Sql"]',
-    message: PRISMA_RAW_MESSAGE,
+    selector: `MemberExpression:matches([property.name=${RAW_TAGGED}], [property.value=${RAW_TAGGED}]):not(TaggedTemplateExpression > .tag):not(CallExpression[arguments.0.type="TaggedTemplateExpression"][arguments.0.tag.object.name="Prisma"][arguments.0.tag.property.name="sql"] > .callee)`,
+    message: RAW_TAGGED_MESSAGE,
   },
   {
-    selector:
-      'ImportDeclaration[source.value=/prisma/] > ImportSpecifier[imported.name="Sql"]',
-    message: PRISMA_RAW_MESSAGE,
+    selector: `ObjectPattern > Property:matches([key.name=${RAW_TAGGED}], [key.value=${RAW_TAGGED}])`,
+    message: RAW_TAGGED_MESSAGE,
   },
 ];
 
