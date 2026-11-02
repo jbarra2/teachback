@@ -52,6 +52,7 @@
     "@scalar/nextjs-api-reference": "^0.12.12",
     "better-auth": "1.7.13",
     "next": "16.4.3",
+    "openapi-fetch": "^0.17.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
