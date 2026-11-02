@@ -76,6 +76,17 @@ model Verification {
   @@map("verification")
 }
 
+// Better Auth's rate limit counters (T06: rateLimit.storage "database"). `key` is "<ip>|<path>";
+// `lastRequest` is Date.now(), so it needs 64 bits. Not ApiRateLimit, which is the app's own (T14).
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rateLimit")
+}
+
 // ---------------------------------------------------------------------------------------------
 // TeachBack's own models (PLAN §6). Every id is a cuid, matching the API's Id pattern
 // (^c[a-z0-9]{24}$, src/lib/schemas/common.ts). The VarChar caps are the API limits (LIMITS).

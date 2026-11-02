@@ -726,8 +726,8 @@ describe("team logins (.github/team.json, CODEOWNERS)", () => {
     }
   });
 
-  // prisma.config.ts runs on every `npm ci` (postinstall), and these hold the database URL and the
-  // session secret, so a teammate's change to any of them requests the lead.
+  // prisma.config.ts runs on every `npm ci` (postinstall), and these hold the database URL, the
+  // session secret, withApi and the auth rules, so a teammate's change to any of them requests the lead.
   it("CODEOWNERS requests the lead on the database and auth setup", () => {
     const patterns = codeowners.map(([pattern]) => pattern);
     for (const p of [
@@ -736,6 +736,17 @@ describe("team logins (.github/team.json, CODEOWNERS)", () => {
       "/src/lib/db.ts",
       "/src/lib/auth.ts",
       "/src/lib/auth-secret.ts",
+      "/src/lib/auth-config.ts",
+      "/src/lib/auth-env.ts",
+      "/src/lib/log.ts",
+      "/src/lib/api/",
+      "/src/proxy.ts",
+      // PLAN §2: the lead's API routes. auth/ decides whether Better Auth is mounted raw.
+      "/src/app/api/auth/",
+      "/src/app/api/courses/",
+      "/src/app/api/health/",
+      "/src/app/api/openapi/",
+      "/src/app/api/docs/",
     ])
       expect(patterns).toContain(p);
   });

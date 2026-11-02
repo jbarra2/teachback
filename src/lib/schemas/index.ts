@@ -8,6 +8,7 @@ import { UploadDocumentForm } from "./documents";
 import { AnswerBody } from "./questions";
 
 export { Id, ID_PATTERN, IdParams, LIMITS, text } from "./common";
+export { SignInBody, SignUpBody, safeNextPath } from "./auth";
 export { CreateCourseBody } from "./courses";
 export { UploadDocumentForm } from "./documents";
 export { AnswerBody } from "./questions";

@@ -1,14 +1,22 @@
 import { readFileSync } from "node:fs";
 import type * as fsPromises from "node:fs/promises";
 import { readFile } from "node:fs/promises";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SPEC_PATH } from "../../../../tests/helpers/openapi-spec";
 import * as route from "./route";
+
+const request = () => new Request("http://localhost:3000/api/openapi");
 
 // The real readFile unless a test replaces it, so a failed read can be simulated.
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof fsPromises>();
   return { ...actual, readFile: vi.fn(actual.readFile) };
+});
+
+beforeEach(() => {
+  // A developer's shell may set these; withApi would then answer every request with a 500.
+  vi.stubEnv("BETTER_AUTH_TELEMETRY", "");
+  vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "");
 });
 
 afterEach(() => {
@@ -29,7 +37,7 @@ describe("GET /api/openapi", () => {
     "is 404 NOT_FOUND when API_DOCS_ENABLED=%j, without reading the file",
     async (value) => {
       vi.stubEnv("API_DOCS_ENABLED", value);
-      const res = await route.GET();
+      const res = await route.GET(request());
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
         error: { code: "NOT_FOUND", message: "Not found." },
@@ -40,7 +48,7 @@ describe("GET /api/openapi", () => {
 
   it("serves openapi.yaml byte for byte, as YAML that browsers won't sniff", async () => {
     enabled();
-    const res = await route.GET();
+    const res = await route.GET(request());
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe(
       "application/yaml; charset=utf-8",
@@ -54,11 +62,15 @@ describe("GET /api/openapi", () => {
     vi.mocked(readFile)
       .mockResolvedValueOnce("openapi: 3.1.0 # first")
       .mockResolvedValueOnce("openapi: 3.1.0 # edited");
-    expect(await (await route.GET()).text()).toBe("openapi: 3.1.0 # first");
-    expect(await (await route.GET()).text()).toBe("openapi: 3.1.0 # edited");
+    expect(await (await route.GET(request())).text()).toBe(
+      "openapi: 3.1.0 # first",
+    );
+    expect(await (await route.GET(request())).text()).toBe(
+      "openapi: 3.1.0 # edited",
+    );
     expect(readFile).toHaveBeenCalledTimes(2);
     vi.stubEnv("API_DOCS_ENABLED", "false");
-    expect((await route.GET()).status).toBe(404);
+    expect((await route.GET(request())).status).toBe(404);
   });
 
   it("answers a failed read with a generic 500 that names no path or cause", async () => {
@@ -71,7 +83,7 @@ describe("GET /api/openapi", () => {
         { code: "ENOENT" },
       ),
     );
-    const res = await route.GET();
+    const res = await route.GET(request());
     expect(res.status).toBe(500);
     expect(res.headers.get("x-request-id")).toBeTruthy();
     const body = await res.text();
@@ -88,6 +100,8 @@ describe("GET /api/openapi", () => {
     enabled();
     vi.stubEnv("BETTER_AUTH_SECRET", "secret-marker-auth-1f9c");
     vi.stubEnv("ANTHROPIC_API_KEY", "secret-marker-key-7a2e");
-    expect(await (await route.GET()).text()).not.toMatch(/secret-marker/);
+    expect(await (await route.GET(request())).text()).not.toMatch(
+      /secret-marker/,
+    );
   });
 });

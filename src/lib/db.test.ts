@@ -19,6 +19,9 @@ vi.mock("@prisma/adapter-pg", async (importOriginal) => {
 // Closed ports, so an accidental query fails loudly instead of reaching a developer's database.
 const DATABASE_URL = "postgresql://app:pw@127.0.0.1:9/pooled";
 const DIRECT_URL = "postgresql://migrate:direct-secret@127.0.0.1:9/direct";
+// pg-pool waits forever for a connection by default (connectionTimeoutMillis 0): a busy pool or a
+// database that stopped answering would hang requests instead of failing with a 500.
+const POOL = { max: 10, connectionTimeoutMillis: 5_000 };
 // Where db.ts keeps the client between module reloads (Next reloads modules in development).
 const GLOBAL_KEY = "teachbackDb";
 
@@ -38,13 +41,17 @@ describe("db", () => {
     vi.stubEnv("DATABASE_URL", DATABASE_URL);
     vi.stubEnv("DIRECT_URL", DIRECT_URL);
     await freshDb();
-    expect(adapterConfigs).toEqual([{ connectionString: DATABASE_URL }]);
+    expect(adapterConfigs).toEqual([
+      { connectionString: DATABASE_URL, ...POOL },
+    ]);
   });
 
   it("hands the adapter the trimmed URL", async () => {
     vi.stubEnv("DATABASE_URL", ` ${DATABASE_URL}\n`);
     await freshDb();
-    expect(adapterConfigs).toEqual([{ connectionString: DATABASE_URL }]);
+    expect(adapterConfigs).toEqual([
+      { connectionString: DATABASE_URL, ...POOL },
+    ]);
   });
 
   // `test` is what Vitest sets: integration tests (T07) reload modules too.

@@ -29,6 +29,7 @@ async function loadAuth(env: Record<string, string> = {}) {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   delete (globalThis as Record<string, unknown>).teachbackDb;
 });
 
@@ -59,14 +60,100 @@ describe("auth", () => {
     expect(auth.options.baseURL).toBe(BASE_URL);
   });
 
-  // PLAN §1: email + password accounts. The limits match the T05 forms (8–128).
-  it("enables email and password sign-in with 8–128 character passwords", async () => {
+  // PLAN §1: email + password accounts. The limits match the T05 forms (8–128). autoSignIn: false
+  // makes sign-up answer the same for a new and an existing email (no "already exists" error), and
+  // it sets no session cookie: the form signs in as a second step (T15).
+  it("enables email and password sign-in with 8–128 character passwords and no sign-in at sign-up", async () => {
     const auth = await loadAuth();
     expect(auth.options.emailAndPassword).toEqual({
       enabled: true,
       minPasswordLength: 8,
       maxPasswordLength: 128,
+      autoSignIn: false,
     });
+  });
+
+  // Better Auth only rate limits in production by default, and in memory, which a serverless
+  // deployment loses between requests.
+  it("rate limits in every environment, stored in the database", async () => {
+    const auth = await loadAuth();
+    const context = await auth.$context;
+    expect(context.rateLimit).toMatchObject({
+      enabled: true,
+      storage: "database",
+    });
+  });
+
+  // Under NODE_ENV=test Better Auth skips its own Origin, CSRF and callback URL checks unless told
+  // not to, so tests would pass without them.
+  it("keeps Better Auth's own Origin and CSRF checks on, even under test", async () => {
+    const auth = await loadAuth();
+    const context = await auth.$context;
+    expect(context.skipOriginCheck).toBe(false);
+    expect(auth.options.advanced?.disableCSRFCheck).toBe(false);
+    expect(context.trustedOrigins).toEqual([BASE_URL]);
+  });
+
+  it.each([
+    [BASE_URL, "__Secure-better-auth.session_token", true],
+    ["http://localhost:3000", "better-auth.session_token", false],
+  ])(
+    "for base URL %s, sets a %s cookie (Secure: %s), httpOnly and SameSite=Lax",
+    async (baseURL, name, secure) => {
+      const auth = await loadAuth({ BETTER_AUTH_URL: baseURL });
+      const { sessionToken } = (await auth.$context).authCookies;
+      expect(sessionToken.name).toBe(name);
+      expect(sessionToken.attributes).toMatchObject({
+        secure,
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+      });
+    },
+  );
+
+  // A client could send any X-Forwarded-For. The auth route removes every copy of this header and
+  // sets it from the one the host vouches for (TRUSTED_IP_HEADER).
+  it("reads the client IP only from the header the auth route sets", async () => {
+    const auth = await loadAuth();
+    const { CLIENT_IP_HEADER } = await import("./auth");
+    expect(auth.options.advanced?.ipAddress?.ipAddressHeaders).toEqual([
+      CLIENT_IP_HEADER,
+    ]);
+  });
+
+  // Better Auth logs whole error objects and, at info level, email addresses.
+  it("sends Better Auth's log lines through log.ts, message only", async () => {
+    const auth = await loadAuth();
+    const printed: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line) => {
+      printed.push(String(line));
+    });
+    // Called the way Better Auth calls it: a level, a message, then whatever it wants to attach.
+    const betterAuthLog = auth.options.logger?.log as (
+      level: string,
+      message: string,
+      ...args: unknown[]
+    ) => void;
+    betterAuthLog(
+      "error",
+      "Failed for ada@example.com",
+      new Error("postgres://user:hunter22@db/teachback"),
+    );
+    expect(printed).toHaveLength(1);
+    expect(JSON.parse(printed[0])).toMatchObject({
+      level: "error",
+      msg: "Failed for [email]",
+    });
+    expect(printed[0]).not.toMatch(/hunter22|example\.com/);
+    expect(auth.options.logger?.level).toBe("warn");
+  });
+
+  // Anything unexpected goes back to withApi, which answers with a generic 500 and a request id,
+  // instead of better-call printing the whole error to the console.
+  it("re-throws unexpected errors instead of printing them", async () => {
+    const auth = await loadAuth();
+    expect(auth.options.onAPIError).toMatchObject({ throw: true });
   });
 
   // TESTING §6, no partial writes: sign-up's user and account inserts run in one Prisma
@@ -108,7 +195,13 @@ describe("auth", () => {
     const models = Object.keys(Prisma.ModelName);
     const tables = Object.entries(getSchema(auth.options));
     expect(tables.map(([table]) => table).sort()).toEqual(
-      expect.arrayContaining(["account", "session", "user", "verification"]),
+      expect.arrayContaining([
+        "account",
+        "rateLimit",
+        "session",
+        "user",
+        "verification",
+      ]),
     );
     for (const [table, { fields }] of tables) {
       const model = table[0]!.toUpperCase() + table.slice(1);
@@ -158,6 +251,11 @@ describe("auth", () => {
       date: "TIMESTAMP(3)",
       number: "INTEGER",
     };
+    // rateLimit.lastRequest holds Date.now(), which needs 64 bits.
+    const sqlType = (field: { type: unknown; bigint?: boolean }) =>
+      field.type === "number" && field.bigint
+        ? "BIGINT"
+        : SQL_TYPE[String(field.type)];
     let checked = 0;
     for (const [table, { fields }] of Object.entries(getSchema(auth.options))) {
       const body = tableBody(sql, table);
@@ -169,8 +267,7 @@ describe("auth", () => {
         const where = `${table}.${column}`;
         expect(line, where).toBeDefined();
         expect(
-          line!.startsWith(`${SQL_TYPE[String(field.type)]} `) ||
-            line === SQL_TYPE[String(field.type)],
+          line!.startsWith(`${sqlType(field)} `) || line === sqlType(field),
           where,
         ).toBe(true);
         expect(/ NOT NULL/.test(` ${line}`), where).toBe(
@@ -180,6 +277,27 @@ describe("auth", () => {
       }
     }
     expect(checked).toBeGreaterThanOrEqual(20);
+  });
+
+  // Better Auth relies on these, and neither its schema check nor the in-memory adapter enforces
+  // them: user.email and session.token, and rateLimit.key, where two first requests at once must
+  // collide so the second re-reads the count instead of starting its own.
+  it("has a unique index for every field Better Auth declares unique", async () => {
+    const auth = await loadAuth();
+    const sql = schemaSql();
+    let checked = 0;
+    for (const [table, { fields }] of Object.entries(getSchema(auth.options)))
+      for (const [name, field] of Object.entries(fields)) {
+        if (!field.unique) continue;
+        const column = field.fieldName ?? name;
+        expect(sql, `${table}.${column}`).toMatch(
+          new RegExp(
+            `CREATE UNIQUE INDEX "\\w+" ON "${table}"\\("${column}"\\);`,
+          ),
+        );
+        checked++;
+      }
+    expect(checked).toBeGreaterThanOrEqual(3);
   });
 
   // Sign-up's user and account inserts happen inside the adapter's transaction: a failing

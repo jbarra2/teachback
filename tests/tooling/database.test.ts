@@ -351,6 +351,8 @@ describe("the generated client matches PLAN §6", () => {
         "Document",
         "Mastery",
         "Question",
+        // Better Auth's rate limit counters (T06), separate from the app's ApiRateLimit (T14).
+        "RateLimit",
         "Session",
         "User",
         "Verification",
@@ -603,6 +605,8 @@ describe("the database schema.prisma describes", () => {
     ["ConceptEdge", ["fromId", "toId"]],
     ["user", ["email"]],
     ["session", ["token"]],
+    // Better Auth's database rate limiter relies on it: two first requests at once must collide.
+    ["rateLimit", ["key"]],
   ])("%s is unique on (%s)", (model, columns) => {
     const list = columns.map((c) => `"${c}"`).join(", ");
     expect(sql).toMatch(
