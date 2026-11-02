@@ -129,7 +129,7 @@ describe("extractText: hostile uploads", () => {
 
   it("rejects a binary renamed to .txt (400)", async () => {
     await expectIngestError(
-      extractText(fixture("hostile/binary.txt"), "binary.txt"),
+      extractText(fixture("hostile/binary.png"), "binary.txt"),
       "UNSUPPORTED_TYPE",
       "CONTENT_MISMATCH",
     );

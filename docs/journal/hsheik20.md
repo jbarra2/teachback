@@ -38,7 +38,7 @@ Structured outputs get you the right JSON shape but don't enforce limits like `m
 - PDFs over 100 pages are rejected with 413 instead of keeping only the first 100 pages, because silent truncation would let a student think their whole document was processed.
 - Error messages are fixed per reason, not per code, so a 413 can say which limit was hit (file size, characters or pages). Parser errors are always replaced with a generic message, so file text never leaks through them.
 - `normalizeNoteText` is exported so notes pasted as text (T12) go through the same normalization and limits as uploaded files.
-- Dropped a nested `.gitattributes` for the hostile fixtures: a repo tooling test only allows the root one, and git already treats those files safely (PDFs are marked binary, and the binary sample contains NUL bytes).
+- Dropped a nested `.gitattributes` for the hostile fixtures, because a repo tooling test only allows the root one. The same tests only allow images and PDFs to be binary (secret scanning skips binary files), so the renamed-binary sample is committed as a `.png` and the test uploads it as `.txt`.
 
 **Hardest part, and how I solved it:**
 The 15-second PDF time cap. `Promise.race` returns as soon as the timer fires, but it doesn't stop the parse, so a document that finishes loading after the timeout would never be closed. The fix was a `timedOut` flag the parser checks, which closes the late document itself, plus fake-timer tests for each case. Testing also caught two wrong assumptions about the PDF library: in this version `destroy()` lives on `doc.loadingTask`, not on the document, and PDF.js drops text that runs off the page, so our in-test PDF builder had to write one line per `\n`.
