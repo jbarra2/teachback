@@ -7,18 +7,22 @@ export type ValidationDetails = components["schemas"]["ValidationDetails"];
 /** The contract's codes, plus NETWORK_ERROR (client only) for a request that never got an answer. */
 export type ApiErrorCode = ErrorCode | "NETWORK_ERROR";
 
-const ERROR_CODES: readonly ErrorCode[] = [
-  "VALIDATION_ERROR",
-  "UNSUPPORTED_TYPE",
-  "UNAUTHENTICATED",
-  "FORBIDDEN_ORIGIN",
-  "NOT_FOUND",
-  "PAYLOAD_TOO_LARGE",
-  "UNREADABLE_FILE",
-  "RATE_LIMITED",
-  "INTERNAL",
-  "AI_UNAVAILABLE",
-];
+// A Record, so tsc fails when openapi.yaml adds or renames a code instead of it silently becoming INTERNAL.
+const ERROR_CODES: Record<ErrorCode, true> = {
+  VALIDATION_ERROR: true,
+  UNSUPPORTED_TYPE: true,
+  UNAUTHENTICATED: true,
+  FORBIDDEN_ORIGIN: true,
+  NOT_FOUND: true,
+  PAYLOAD_TOO_LARGE: true,
+  UNREADABLE_FILE: true,
+  RATE_LIMITED: true,
+  INTERNAL: true,
+  AI_UNAVAILABLE: true,
+};
+
+/** Every contract error code. */
+export const ERROR_CODE_LIST = Object.keys(ERROR_CODES) as ErrorCode[];
 
 export const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 export const NETWORK_MESSAGE =
@@ -34,8 +38,9 @@ export class ApiError extends Error {
     message: string,
     status: number,
     details?: ValidationDetails,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
@@ -44,7 +49,7 @@ export class ApiError extends Error {
 }
 
 function isErrorCode(value: unknown): value is ErrorCode {
-  return ERROR_CODES.includes(value as ErrorCode);
+  return typeof value === "string" && Object.hasOwn(ERROR_CODES, value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,7 +75,17 @@ export function toApiError(status: number, body: unknown): ApiError {
   return new ApiError("INTERNAL", GENERIC_MESSAGE, status);
 }
 
-/** The ApiError for a fetch that threw (offline, DNS, CORS, aborted). The cause is not exposed. */
-export function networkError(): ApiError {
-  return new ApiError("NETWORK_ERROR", NETWORK_MESSAGE, 0);
+/**
+ * The ApiError for a call that threw instead of answering (offline, DNS, CORS, a malformed success
+ * body). The message is fixed; the original error is kept as `cause` for debugging in the browser.
+ */
+export function networkError(cause?: unknown): ApiError {
+  return new ApiError("NETWORK_ERROR", NETWORK_MESSAGE, 0, undefined, {
+    cause,
+  });
+}
+
+/** A request cancelled with an AbortSignal (e.g. on unmount). Not an error to show. */
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }

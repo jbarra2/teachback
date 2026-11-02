@@ -1,6 +1,8 @@
 // The mocks driven through the real typed client, all keys on, with a network that must not be used.
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, createApiClient, unwrap } from "@/lib/api-client";
+import { createApiClient, unwrap } from "@/lib/api-client";
+import { rejection } from "@/lib/api-client/test-helpers";
+import { LIMITS } from "@/lib/schemas";
 import { MOCK_KEYS } from "./config";
 import {
   CONCEPT_IDS,
@@ -29,15 +31,6 @@ function mockedApi() {
     onUnauthenticated: () => {},
   });
   return { api, network };
-}
-
-async function rejection(call: Promise<unknown>): Promise<ApiError> {
-  const error: unknown = await call.then(
-    () => null,
-    (reason: unknown) => reason,
-  );
-  if (!(error instanceof ApiError)) throw new Error("expected an ApiError");
-  return error;
 }
 
 describe("courses mock", () => {
@@ -70,17 +63,52 @@ describe("courses mock", () => {
     expect(network).not.toHaveBeenCalled();
   });
 
-  it.each(["", "   ", "x".repeat(121)])(
+  it.each(["", "   ", "x".repeat(LIMITS.courseName + 1), "a\u0000b"])(
     "rejects the name %j like the server",
     async (name) => {
       const { api } = mockedApi();
       const error = await rejection(
         unwrap(api.POST("/api/courses", { body: { name } })),
       );
-      expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+      expect(error).toMatchObject({
+        code: "VALIDATION_ERROR",
+        status: 400,
+        message: "Some fields are invalid.",
+      });
       expect(error.details?.fieldErrors.name).toHaveLength(1);
     },
   );
+
+  it("counts characters, not UTF-16 units, like the server", async () => {
+    const { api } = mockedApi();
+    // 120 emoji are 240 UTF-16 units but 120 characters.
+    const name = "😀".repeat(LIMITS.courseName);
+    const created = await unwrap(api.POST("/api/courses", { body: { name } }));
+    expect(created.name).toBe(name);
+    const tooLong = rejection(
+      unwrap(api.POST("/api/courses", { body: { name: `${name}😀` } })),
+    );
+    expect(await tooLong).toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("rejects unknown body fields, like the server's .strict() schemas", async () => {
+    const { api } = mockedApi();
+    const body = { name: "New", admin: true } as { name: string };
+    const error = await rejection(unwrap(api.POST("/api/courses", { body })));
+    expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+    expect(error.details?.formErrors.length).toBeGreaterThan(0);
+  });
+
+  it("is a 400 for a malformed id, before looking it up", async () => {
+    const { api } = mockedApi();
+    for (const id of ["not-a-cuid", "%E0%A4%A", "../courses"]) {
+      const error = await rejection(
+        unwrap(api.GET("/api/courses/{id}", { params: { path: { id } } })),
+      );
+      expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+      expect(error.details?.fieldErrors.id).toHaveLength(1);
+    }
+  });
 
   it("doesn't share state between clients", async () => {
     const first = mockedApi().api;
@@ -146,9 +174,12 @@ describe("documents mock", () => {
     api: ReturnType<typeof mockedApi>["api"],
     courseId: string,
     title: string,
+    notes: { text?: string; file?: Blob } = {
+      text: "Cells are the unit of life.",
+    },
   ) {
     return api.POST("/api/documents", {
-      body: { courseId, title, text: "Cells are the unit of life." },
+      body: { courseId, title, ...notes },
       bodySerializer(body) {
         const form = new FormData();
         for (const [key, value] of Object.entries(body))
@@ -216,6 +247,36 @@ describe("documents mock", () => {
       ),
     ).toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("validates the form before looking up the course, like the server", async () => {
+    const { api } = mockedApi();
+    const error = await rejection(unwrap(upload(api, UNKNOWN_ID, " ")));
+    expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+    expect(error.details?.fieldErrors.title).toHaveLength(1);
+  });
+
+  it.each([
+    ["neither a file nor text", {}],
+    [
+      "both a file and text",
+      { text: "Notes", file: new File(["Notes"], "week1.txt") },
+    ],
+  ])("rejects %s", async (_label, notes) => {
+    const { api } = mockedApi();
+    const error = await rejection(
+      unwrap(upload(api, COURSE_ID, "Week 1", notes)),
+    );
+    expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+    expect(error.details?.formErrors).toHaveLength(1);
+  });
+
+  it("accepts a file instead of text", async () => {
+    const { api } = mockedApi();
+    const { response } = await upload(api, COURSE_ID, "Week 1", {
+      file: new File(["Cells are the unit of life."], "week1.txt"),
+    });
+    expect(response.status).toBe(202);
+  });
 });
 
 describe("practice mocks", () => {
@@ -246,7 +307,20 @@ describe("practice mocks", () => {
     expect(answerResults).toHaveLength(3);
   });
 
-  it.each(["", " ", "x".repeat(4001)])(
+  it("validates the answer before looking up the question", async () => {
+    const { api } = mockedApi();
+    const error = await rejection(
+      unwrap(
+        api.POST("/api/questions/{id}/answer", {
+          params: { path: { id: UNKNOWN_ID } },
+          body: { answer: " " },
+        }),
+      ),
+    );
+    expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
+  });
+
+  it.each(["", " ", "x".repeat(LIMITS.answer + 1)])(
     "rejects the answer %j like the server",
     async (text) => {
       const { api } = mockedApi();

@@ -1,6 +1,15 @@
 // In-memory stand-ins for each endpoint (PLAN §7), keyed by the NEXT_PUBLIC_MOCK_ENDPOINTS name.
 // They answer in the contract's shapes and statuses, so screens can't tell them from the real API.
+// Requests are checked with the server's own zod schemas, in the server's order: path id, then
+// body (400), then lookup (404).
+import { z } from "zod";
 import type { components } from "@/lib/api-client/schema";
+import {
+  AnswerBody,
+  CreateCourseBody,
+  IdParams,
+  UploadDocumentForm,
+} from "@/lib/schemas";
 import type { MockKey } from "./config";
 import {
   COURSE_ID,
@@ -32,38 +41,48 @@ function json(body: unknown, status = 200): Response {
   return Response.json(body, { status });
 }
 
-function error(
-  code: Schemas["ErrorCode"],
-  message: string,
-  status: number,
-  fieldErrors?: Record<string, string[]>,
-): Response {
-  const details = fieldErrors ? { formErrors: [], fieldErrors } : undefined;
-  return json({ error: { code, message, details } }, status);
+const notFound = () =>
+  json({ error: { code: "NOT_FOUND", message: "Not found." } }, 404);
+
+/** 400 VALIDATION_ERROR with zod's field and form errors, as the server sends it. */
+function invalid(error: z.ZodError): Response {
+  return json(
+    {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Some fields are invalid.",
+        details: z.flattenError(error),
+      },
+    },
+    400,
+  );
 }
 
-const notFound = () => error("NOT_FOUND", "Not found.", 404);
-const invalid = (field: string, message: string) =>
-  error("VALIDATION_ERROR", "Please check the highlighted fields.", 400, {
-    [field]: [message],
-  });
+type Parsed<T> = { data: T; response?: never } | { response: Response };
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
+function parse<T>(schema: z.ZodType<T>, value: unknown): Parsed<T> {
+  const result = schema.safeParse(value);
+  return result.success
+    ? { data: result.data }
+    : { response: invalid(result.error) };
+}
+
+/** The JSON body, or undefined when it isn't JSON (the schema then reports it). */
+async function readJson(request: Request): Promise<unknown> {
   try {
-    const body: unknown = await request.json();
-    return typeof body === "object" && body !== null
-      ? (body as Record<string, unknown>)
-      : {};
+    return (await request.json()) as unknown;
   } catch {
-    return {};
+    return undefined;
   }
 }
 
-/** Trimmed text within 1..max characters, or null. */
-function boundedText(value: unknown, max: number): string | null {
-  if (typeof value !== "string") return null;
-  const text = value.trim();
-  return text.length >= 1 && text.length <= max ? text : null;
+/** The form fields as an object, as the upload route builds them. */
+async function readForm(request: Request): Promise<unknown> {
+  try {
+    return Object.fromEntries(await request.formData());
+  } catch {
+    return undefined;
+  }
 }
 
 /** A cuid-looking id for things the mocks create. */
@@ -82,10 +101,18 @@ export function createMockRoutes(): Route[] {
   let created = 0;
   let answered = 0;
 
-  const findCourse = (id: string | undefined) =>
+  const findCourse = (id: string) =>
     courseList.find((course) => course.id === id);
-  const findDocument = (id: string | undefined) =>
+  const findDocument = (id: string) =>
     [...documents.values()].flat().find((doc) => doc.id === id);
+
+  /** A route with an `{id}`: the id is checked like the server's IdParams before the handler runs. */
+  const withId =
+    (handle: (request: Request, id: string) => Promise<Response>): Handler =>
+    async (request, [id]) => {
+      const params = parse(IdParams, { id });
+      return params.response ?? handle(request, params.data.id);
+    };
 
   return [
     {
@@ -99,11 +126,11 @@ export function createMockRoutes(): Route[] {
       method: "POST",
       pattern: /^\/api\/courses$/,
       handle: async (request) => {
-        const name = boundedText((await readJson(request)).name, 120);
-        if (!name) return invalid("name", "Use 1–120 characters.");
+        const body = parse(CreateCourseBody, await readJson(request));
+        if (body.response) return body.response;
         const course = {
           id: mockId("mockcourse", ++created),
-          name,
+          name: body.data.name,
           createdAt: new Date().toISOString(),
         };
         courseList.push(course);
@@ -115,50 +142,48 @@ export function createMockRoutes(): Route[] {
       key: "courses",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         const course = findCourse(id);
         if (!course) return notFound();
         return json({ ...course, documents: documents.get(course.id) ?? [] });
-      },
+      }),
     },
     {
       key: "concepts",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/concepts$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         if (!findCourse(id)) return notFound();
         return json(id === COURSE_ID ? concepts : []);
-      },
+      }),
     },
     {
       key: "map",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/map$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         if (!findCourse(id)) return notFound();
         return json(id === COURSE_ID ? courseMap : { nodes: [], edges: [] });
-      },
+      }),
     },
     {
       key: "next",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/next-concept$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         if (!findCourse(id)) return notFound();
         return json(id === COURSE_ID ? nextConcept : null);
-      },
+      }),
     },
     {
       key: "documents",
       method: "POST",
       pattern: /^\/api\/documents$/,
       handle: async (request) => {
-        const form = await request.formData();
-        const courseId = form.get("courseId");
-        const title = boundedText(form.get("title"), 200);
-        if (typeof courseId !== "string" || !findCourse(courseId))
-          return notFound();
-        if (!title) return invalid("title", "Use 1–200 characters.");
+        const form = parse(UploadDocumentForm, await readForm(request));
+        if (form.response) return form.response;
+        const { courseId, title } = form.data;
+        if (!findCourse(courseId)) return notFound();
         const id = mockId("mockdoc", ++created);
         documents.get(courseId)?.push({
           id,
@@ -174,7 +199,7 @@ export function createMockRoutes(): Route[] {
       key: "documents",
       method: "GET",
       pattern: new RegExp(`^/api/documents/${ID}$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         const doc = findDocument(id);
         if (!doc) return notFound();
         const poll = polls.get(doc.id);
@@ -194,29 +219,38 @@ export function createMockRoutes(): Route[] {
           error: doc.error,
           conceptCount,
         });
-      },
+      }),
     },
     {
       key: "question",
       method: "POST",
       pattern: new RegExp(`^/api/concepts/${ID}/question$`),
-      handle: async (_request, [id]) => {
+      handle: withId(async (_request, id) => {
         if (!concepts.some((concept) => concept.id === id)) return notFound();
         return json(question);
-      },
+      }),
     },
     {
       key: "answer",
       method: "POST",
       pattern: new RegExp(`^/api/questions/${ID}/answer$`),
-      handle: async (request, [id]) => {
+      handle: withId(async (request, id) => {
+        const body = parse(AnswerBody, await readJson(request));
+        if (body.response) return body.response;
         if (id !== question.questionId) return notFound();
-        if (!boundedText((await readJson(request)).answer, 4000))
-          return invalid("answer", "Use 1–4000 characters.");
         return json(answerResults[answered++ % answerResults.length]);
-      },
+      }),
     },
   ];
+}
+
+/** Decodes a path segment; a malformed escape stays as it is (and then fails the id check). */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /** The mock route for this request, if any, with its captured path parameters. */
@@ -228,7 +262,7 @@ export function matchRoute(
   for (const route of routes) {
     if (route.method !== request.method) continue;
     const match = route.pattern.exec(pathname);
-    if (match) return { route, params: match.slice(1).map(decodeURIComponent) };
+    if (match) return { route, params: match.slice(1).map(decodeSegment) };
   }
   return null;
 }

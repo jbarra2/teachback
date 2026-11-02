@@ -4,7 +4,7 @@
 import createClient, { type Middleware } from "openapi-fetch";
 import { enabledMockEndpoints, type MockKey } from "@/lib/mocks/config";
 import { createMockFetch } from "@/lib/mocks/fetch";
-import { networkError, toApiError } from "./errors";
+import { isAbortError, networkError, toApiError } from "./errors";
 import type { paths } from "./schema";
 
 /** Pages that must not bounce to /login on a 401, or signing in would loop. */
@@ -68,7 +68,8 @@ type Data<R extends Result> = Exclude<R["data"], undefined>;
 
 /**
  * The data of a successful call, or an ApiError: the contract's code and message for an error
- * response, NETWORK_ERROR when the request never got an answer.
+ * response, NETWORK_ERROR (with the original as `cause`) when the call threw. An aborted request
+ * rethrows its AbortError unchanged, so screens that cancel on unmount can ignore it.
  *
  *   const courses = await unwrap(api.GET("/api/courses"));
  */
@@ -78,8 +79,9 @@ export async function unwrap<R extends Result>(
   let result: R;
   try {
     result = await call;
-  } catch {
-    throw networkError();
+  } catch (cause) {
+    if (isAbortError(cause)) throw cause;
+    throw networkError(cause);
   }
   if (result.error !== undefined || !result.response.ok)
     throw toApiError(result.response.status, result.error);

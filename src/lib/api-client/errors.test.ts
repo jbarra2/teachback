@@ -1,25 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
   ApiError,
+  ERROR_CODE_LIST,
   GENERIC_MESSAGE,
   NETWORK_MESSAGE,
+  isAbortError,
   networkError,
   toApiError,
   type ErrorCode,
 } from "./errors";
 
-const CASES: [ErrorCode, number][] = [
-  ["VALIDATION_ERROR", 400],
-  ["UNSUPPORTED_TYPE", 400],
-  ["UNAUTHENTICATED", 401],
-  ["FORBIDDEN_ORIGIN", 403],
-  ["NOT_FOUND", 404],
-  ["PAYLOAD_TOO_LARGE", 413],
-  ["UNREADABLE_FILE", 422],
-  ["RATE_LIMITED", 429],
-  ["INTERNAL", 500],
-  ["AI_UNAVAILABLE", 502],
-];
+// Each code's status (PLAN §7). A Record, so a code added to openapi.yaml fails tsc here too.
+const STATUS: Record<ErrorCode, number> = {
+  VALIDATION_ERROR: 400,
+  UNSUPPORTED_TYPE: 400,
+  UNAUTHENTICATED: 401,
+  FORBIDDEN_ORIGIN: 403,
+  NOT_FOUND: 404,
+  PAYLOAD_TOO_LARGE: 413,
+  UNREADABLE_FILE: 422,
+  RATE_LIMITED: 429,
+  INTERNAL: 500,
+  AI_UNAVAILABLE: 502,
+};
+
+const CASES = Object.entries(STATUS) as [ErrorCode, number][];
+
+it("knows exactly the contract's error codes", () => {
+  expect([...ERROR_CODE_LIST].sort()).toEqual(Object.keys(STATUS).sort());
+});
 
 describe("toApiError", () => {
   it.each(CASES)("keeps %s and its message (status %i)", (code, status) => {
@@ -76,5 +85,26 @@ describe("networkError", () => {
       status: 0,
       message: NETWORK_MESSAGE,
     });
+  });
+
+  it("keeps the original error as its cause, not in the message", () => {
+    const cause = new Error("secret detail");
+    const error = networkError(cause);
+    expect(error.cause).toBe(cause);
+    expect(error.message).toBe(NETWORK_MESSAGE);
+  });
+});
+
+describe("isAbortError", () => {
+  it("recognises an aborted request", () => {
+    expect(isAbortError(new DOMException("aborted", "AbortError"))).toBe(true);
+  });
+
+  it.each([
+    ["another DOMException", new DOMException("x", "NetworkError")],
+    ["a TypeError", new TypeError("Failed to fetch")],
+    ["a string", "AbortError"],
+  ])("ignores %s", (_label, value) => {
+    expect(isAbortError(value)).toBe(false);
   });
 });

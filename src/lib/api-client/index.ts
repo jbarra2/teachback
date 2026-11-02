@@ -8,6 +8,7 @@ export {
 } from "./client";
 export {
   ApiError,
+  isAbortError,
   toApiError,
   type ApiErrorCode,
   type ErrorCode,
