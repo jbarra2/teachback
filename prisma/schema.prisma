@@ -1,0 +1,238 @@
+// The database schema (PLAN §6). Lead-owned; changes go in their own migration.
+// The URL lives in prisma.config.ts (DIRECT_URL) and src/lib/db.ts (DATABASE_URL).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  courses       Course[]
+  attempts      Attempt[]
+  mastery       Mastery[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------------------------
+// TeachBack's own models (PLAN §6). Every id is a cuid, matching the API's Id pattern
+// (^c[a-z0-9]{24}$, src/lib/schemas/common.ts). The VarChar caps are the API limits (LIMITS).
+
+enum DocumentStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum SourceType {
+  TEXT
+  MARKDOWN
+  PDF
+}
+
+enum QuestionKind {
+  EXPLAIN
+  WHY
+  COMPARE
+  APPLY
+}
+
+enum Verdict {
+  CORRECT
+  PARTIAL
+  INCORRECT
+}
+
+enum Confidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+model Course {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String     @db.VarChar(120)
+  createdAt DateTime   @default(now())
+  documents Document[]
+  concepts  Concept[]
+
+  @@index([userId])
+}
+
+model Document {
+  id         String         @id @default(cuid())
+  courseId   String
+  course     Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title      String         @db.VarChar(200)
+  sourceType SourceType
+  rawText    String
+  status     DocumentStatus @default(QUEUED)
+  error      String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  chunks     Chunk[]
+
+  @@index([courseId])
+}
+
+model Chunk {
+  id         String         @id @default(cuid())
+  documentId String
+  document   Document       @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  order      Int
+  text       String
+  refLabel   String
+  concepts   ConceptChunk[]
+
+  @@unique([documentId, order])
+}
+
+model Concept {
+  id        String         @id @default(cuid())
+  courseId  String
+  course    Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  name      String
+  /// Normalized name (lowercase, collapsed spaces): the dedupe and merge key.
+  nameKey   String
+  summary   String
+  createdAt DateTime       @default(now())
+  chunks    ConceptChunk[]
+  outEdges  ConceptEdge[]  @relation("EdgeFrom")
+  inEdges   ConceptEdge[]  @relation("EdgeTo")
+  questions Question[]
+  mastery   Mastery[]
+
+  @@unique([courseId, nameKey])
+}
+
+model ConceptChunk {
+  conceptId String
+  chunkId   String
+  concept   Concept @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  chunk     Chunk   @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@id([conceptId, chunkId])
+}
+
+model ConceptEdge {
+  id     String  @id @default(cuid())
+  fromId String
+  toId   String
+  from   Concept @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to     Concept @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId])
+}
+
+model Question {
+  id             String       @id @default(cuid())
+  conceptId      String
+  concept        Concept      @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  text           String
+  kind           QuestionKind
+  sourceChunkIds String[]
+  createdAt      DateTime     @default(now())
+  attempts       Attempt[]
+}
+
+model Attempt {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answer     String     @db.VarChar(4000)
+  verdict    Verdict
+  confidence Confidence
+  feedback   Json
+  createdAt  DateTime   @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Mastery {
+  userId     String
+  conceptId  String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concept    Concept   @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  score      Float     @default(0)
+  attempts   Int       @default(0)
+  lastSeenAt DateTime?
+
+  @@id([userId, conceptId])
+}
+
+/// Named to avoid clashing with Better Auth's own rateLimit model (T06).
+model ApiRateLimit {
+  /// "<userId>:<bucket>:<window>"
+  key         String
+  windowStart DateTime
+  count       Int      @default(0)
+
+  @@id([key, windowStart])
+}

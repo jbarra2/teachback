@@ -149,3 +149,35 @@ CodeQL kept flagging code where I didn't expect it. My first fix still opened `.
 
 **What I learned:**
 Static analysis rules match code patterns, so the fix that satisfies them is a structural one (one handle, no second lookup of the path), and test files count too. Some guarantees only show on one platform: Windows ignores Unix file modes and even opens folders, so I ran the Linux-only tests and mutations in a throwaway Docker container as a normal user instead of trusting a skipped test.
+
+## T02 · Database: Docker Postgres + Prisma 7 + Better Auth models + schema (#2) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** The database layer the other tracks build on.
+
+- `prisma/schema.prisma`, with the Better Auth models and the PLAN §6 domain models, and the first migration.
+- The Prisma 7 client with the `pg` driver adapter in `src/lib/db.ts`, and `prisma.config.ts`.
+- A minimal Better Auth setup in `src/lib/auth.ts`, which refuses a missing, placeholder, public or short secret (`src/lib/auth-secret.ts`).
+- A CI step that fails when the migrations and the schema drift apart.
+- New lint bans on the Prisma helpers that put raw strings into SQL.
+- Tests that check the schema's columns, limits, cascades and enums against PLAN, `openapi.yaml` and Better Auth's own field list.
+
+**Skills & tools:** PostgreSQL, Docker Compose, Prisma 7 (driver adapters, `migrate diff`, shadow databases), Better Auth, ESLint selectors, GitHub Actions, npm install-script allowlists, Vitest, mutation testing, security review
+
+**Asked Claude for:** Build T02 from the issue, with the plan shown and the tests written before the code. Partway through, I had it add the CI drift check and close the lint gaps the security review found instead of deferring them, run the manual test steps for me, and fix security concerns as they come up while recording the rest for later.
+
+**Decided / dropped:**
+
+- Generated the auth models with a one-off run of Better Auth's CLI instead of adding it as a dependency. The old `@better-auth/cli` package is deprecated, so we used its replacement, `auth`.
+- Turned on the Prisma adapter's `transaction: true`. Without it, Better Auth's sign-up writes the user and the account separately. A live test left a user with no password when the second write failed, and none with the fix.
+- Refused `BETTER_AUTH_SECRETS` and Better Auth's public default secret. Outside production, Better Auth quietly falls back to that default, and the rotation list overrides the configured secret.
+- Ran the drift check only in CI. It needs a shadow database, and run locally it would write into a teammate's test database.
+- Turned off the Prisma CLI's update check (`CHECKPOINT_DISABLE=1`). Its background process contacted Prisma's servers and kept temp folders locked during tests.
+- Ran the live database checks by hand for now. T07 turns them into committed tests.
+
+**Hardest part, and how I solved it:**
+Making sure the schema can't drift silently from what Better Auth expects, from the migration, or from our API contract. The tests compare it to Better Auth's field list, to the enums in `openapi.yaml` and to the PLAN limits, and CI diffs the migrations against the schema. Breaking things on purpose showed a gap: Better Auth's own schema check can't tell whether a column is required, so making a user column optional went unnoticed. I fixed it with a test that generates the SQL from the schema and checks every required column, and after that all 87 mutations were caught.
+
+**What I learned:**
+A library's defaults can be unsafe for our app even when its docs look fine, so I read the installed source. That's how I found Better Auth's public fallback secret and the sign-up that isn't atomic without `transaction: true`. Prisma 7 also changed a lot from earlier versions: it no longer reads `.env` itself, the database URL moved to `prisma.config.ts`, and the client is generated into our own source folder.

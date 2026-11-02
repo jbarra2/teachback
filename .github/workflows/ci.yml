@@ -93,6 +93,13 @@ jobs:
         with: { node-version: "${{ env.NODE_VERSION }}", cache: npm }
       - run: cp .env.test .env
       - run: npm ci
+      # The committed migrations must build what prisma/schema.prisma describes, so a schema change
+      # can't land without its migration. Prisma rebuilds them in a scratch "shadow" database: the
+      # service's `postgres` database, never teachback_test, which the tests use.
+      - name: Migrations match the schema
+        env:
+          SHADOW_DATABASE_URL: postgresql://teachback:teachback@127.0.0.1:5434/postgres
+        run: npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code
       - run: npm run test:ci
       - uses: actions/upload-artifact@v4
         if: always()
