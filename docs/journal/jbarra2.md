@@ -6,8 +6,6 @@ One entry per task, oldest first.
 
 ## T01 · Scaffold Next.js app & tooling (#1) · Oct 30, 2026
 
-<!-- needs-review -->
-
 **What I built:** The Next.js 16 app scaffolded into our existing repo, plus the quality gate everyone builds on: an ESLint flat config that enforces our security and layering rules (no database access from pages or components, the Claude SDK only in `src/lib/ai`, no raw SQL, `eval` or raw HTML, no `eslint-disable`), Vitest with a Node project and a jsdom project, Prettier, the npm scripts, and the folder skeleton. I also hardened the pre-commit secret scan and `.gitignore`, added a script that fails the test run if any test file stops being collected, and made the dev and production servers listen only on localhost.
 
 **Skills & tools:** Next.js 16, TypeScript, ESLint 9 flat config with typed linting (typescript-eslint), Vitest 5, Testing Library, jsdom, Prettier, git hooks, gitleaks, Docker, GitHub Actions, mutation testing
@@ -35,8 +33,6 @@ A passing test only counts as evidence if it fails when the code is wrong, and m
 
 ## T35 · Team onboarding: logins, CODEOWNERS and journal fields (#37) · Oct 30, 2026
 
-<!-- needs-review -->
-
 **What I built:** The repo setup our teammates need before they start.
 
 - Their GitHub logins in `.github/team.json` and `CODEOWNERS`, which decide issue assignment and review requests. `CODEOWNERS` now also covers the lead-owned config.
@@ -61,8 +57,6 @@ CODEOWNERS only works for people who already have write access, so the order is:
 
 ## T36 · One Node and npm version for the team and CI (#39) · Oct 31, 2026
 
-<!-- needs-review -->
-
 **What I built:** A toolchain pin so every machine and CI write `package-lock.json` the same way. `devEngines` in `package.json` makes npm refuse Node below 24 or npm outside 11.11–11.x, CI moved from Node 22 to 24, and `scripts/setup.mjs` checks both versions up front with an install hint.
 
 **Skills & tools:** npm `devEngines`, GitHub Actions (`actions/setup-node`), Node.js, Vitest config tests, mutation testing
@@ -83,8 +77,6 @@ Working out which npm versions actually rewrite the lockfile. I regenerated a co
 The lockfile format depends on the npm minor version, not just the major, so a team needs a pinned range that the tool enforces itself. With `devEngines`, npm stops `install` and `run` with EBADDEVENGINES on a wrong version, so the check lives in one place instead of in every script.
 
 ## T37 · Merge on green CI; lead reviews risky PRs (#41) · Oct 31, 2026
-
-<!-- needs-review -->
 
 **What I built:** Merging to main no longer needs an approval: a PR merges once `ci-ok` and CodeQL are green, and a teammate's risky PR (another track's files, CI files, new packages, routes, auth, data access, uploads, the Claude provider) waits for my review. To make that safe I moved the ruleset into `scripts/protect-main-ruleset.json` with a live-drift check (`setup-github.mjs --check-protect`), added a plain-Node dependency check (`scripts/lockfile-check.mjs`) that CI runs before any install script, and added tests that pin `ci.yml` and keep every HTTP entry point under `src/app/api/`.
 
@@ -152,8 +144,6 @@ Static analysis rules match code patterns, so the fix that satisfies them is a s
 
 ## T02 · Database: Docker Postgres + Prisma 7 + Better Auth models + schema (#2) · Nov 2, 2026
 
-<!-- needs-review -->
-
 **What I built:** The database layer the other tracks build on.
 
 - `prisma/schema.prisma`, with the Better Auth models and the PLAN §6 domain models, and the first migration.
@@ -183,8 +173,6 @@ Making sure the schema can't drift silently from what Better Auth expects, from 
 A library's defaults can be unsafe for our app even when its docs look fine, so I read the installed source. That's how I found Better Auth's public fallback secret and the sign-up that isn't atomic without `transaction: true`. Prisma 7 also changed a lot from earlier versions: it no longer reads `.env` itself, the database URL moved to `prisma.config.ts`, and the client is generated into our own source folder.
 
 ## T06 · Auth + secure API route wrapper (withApi) (#6) · Nov 2, 2026
-
-<!-- needs-review -->
 
 **What I built:** Real accounts and the wrapper every API route uses.
 
@@ -226,8 +214,6 @@ Security defaults can change with the environment. Better Auth skips its own ori
 
 ## T07 · Test infrastructure: integration DB, auth helpers, contract validation (#7) · Nov 2, 2026
 
-<!-- needs-review -->
-
 **What I built:** The setup that lets every route be tested against the real database, sessions and API contract.
 
 - A Vitest `integration` project:
@@ -259,3 +245,37 @@ The hardest bugs were tests that passed without checking what they claimed. Rout
 
 **What I learned:**
 A safety check only works if it reads its input the same way as the thing it protects. My guard parsed the database URL one way while `pg` and Prisma's migrate engine handled query parameters, encoded paths and missing ports differently, so I narrowed the guard to URLs they all read the same and checked the live connection too. I also learned that an error nobody can read is only half a fix: Vitest crashed while printing the guard's refusal, so I made the setup's errors printable and checked them in a live run.
+
+## T40 · Live project board sync: status from issues, PRs and blockers (#58) · Nov 3, 2026
+
+**What I built:** A sync that keeps the project board's Status column in step with issues, PRs and blockers, so nobody has to drag cards by hand.
+
+- `scripts/board-sync.mjs`, plain Node with no packages:
+  - reads every issue (state, labels, native blockers, the PRs that close it, linked branches) and every card on the board;
+  - places each card: closed → Done; an open team PR → In review; a branch, draft PR or `in-progress` label → In progress; a track label with every blocker closed → Ready; otherwise Backlog;
+  - writes only the cards that changed, and `--dry-run` prints the moves without writing;
+  - stops before any write if the board's project, Status field or option IDs differ from the pinned ones.
+- `.github/workflows/board.yml`: runs on issue and PR events, every 15 minutes (blockers change without an event), and by hand. It never checks out PR code, reads the repo with read-only permissions, takes the board token from a `board` environment that only `main` can use, and pins its actions to commits.
+- Tests: a fake GraphQL server that accepts only the exact queries checked against the live API, fixtures for forks, drafts, deleted authors and hidden blockers, the command spawned for real, and pins for the workflow in `project-config.test.ts`.
+- CONTRIBUTING: the column rules and the one-time setup for the machine account, its token and the environment.
+
+**Skills & tools:** GitHub Projects v2 GraphQL API, GitHub Actions (`pull_request_target`, environments, actions pinned to commits), Node's built-in `fetch`, Vitest, mutation testing, threat modelling, security and test reviews
+
+**Asked Claude for:** I asked for the board sync after T07, approved the plan, and after the second review round chose a separate machine account for the board token and a track-label rule for Ready. Before `/test-task` I paused T40 to review two teammates' PRs first, then finished with `/test-task` and `/security-review`.
+
+**Decided / dropped:**
+
+- A plain Node script with no packages and no `npm install`: the job holds a write token, so nothing runs in it except the repo's own script and GitHub's two pinned actions.
+- Only open PRs from team members, on this repo and not from a fork, move cards. Anyone can open a PR on a public repo that says "Closes #12".
+- Ready needs a track label, so an outsider's issue waits in Backlog until the team triages it.
+- The token comes from a machine account that can write to this board only. Teammates can merge to `main` without an approval, and code on `main` runs with the token, so a token from my own account would have reached every project I have.
+- Pinned the Status option IDs, not just their names. The board's Auto-close workflow closes any issue moved to Done, so a renamed or swapped option must never let the sync write Done onto open issues.
+- Too many linked PRs no longer stops the run. Otherwise an outsider could attach enough fork PRs to one issue to stop the sync for the whole board. The card is placed from the PRs that fit, with a warning, and too many blockers or labels skips only that card.
+- A blocker the token can't see counts as open, so its card stays in Backlog.
+- Dropped a round 3 suggestion to skip the workflow for fork PRs: no outsider input reaches those runs, and it would need a `github.event` expression, which the workflow tests forbid.
+
+**Hardest part, and how I solved it:**
+The hardest bugs were tests that passed while the real sync would have done nothing. The second test review found that my fake GitHub server answered every field whatever the query asked for, so dropping a card's `type` from the query passed every test, while the real sync would have skipped every card. The third found the same shape again: GitHub matches the repository name without regard to case, so a miscased name in the script would still read the issues but never match their PRs. I made the fake accept only the exact query text I had checked against the live API and check the owner, project and field on every request, compared repository names without case, and broke each protection on purpose to watch the tests fail.
+
+**What I learned:**
+`pull_request_target` runs the workflow and code from `main`, even for a fork's PR, so it's safe only when the job never checks out or runs the PR's code and no event text reaches a shell. I also learned that a secret is exposed to everyone who can change the code that runs with it. The environment rule kept the token to `main`, but anyone who can merge to `main` can still reach it, so I limited what the token can do instead, with an account that can reach only this board.

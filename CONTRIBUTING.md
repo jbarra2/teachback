@@ -47,6 +47,24 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 | 8. Fix      | `/fix-ci` or `/address-review`                                     | Fixes red CI or applies review comments                                                                                     | Confirm                                         |
 | 9. Merge    | Squash-merge when `ci-ok` + CodeQL are green (see "Reviews" below) | The issue closes automatically                                                                                              | `/clear`, then step 1                           |
 
+**The project board moves its own cards** (`.github/workflows/board.yml`, T40). It updates on every issue or PR change, and at least every 15 minutes:
+
+- **Done:** the issue is closed.
+- **In review:** your PR is open and not a draft, or the issue has the `in-review` label (`/finish-task` adds it).
+- **In progress:** `/start-task` made the branch, or you have a draft PR, or the issue has the `in-progress` label.
+- **Ready:** it has its track label (`lead`, `ai` or `frontend`) and every issue blocking it is closed.
+- **Backlog:** anything else, including an issue from outside the team until someone gives it a track label.
+
+Don't drag cards by hand: the next sync puts them back. Only PRs from the team, on this repo, move cards.
+
+**Setting up the board sync (lead, once).** The workflow writes to the board with a token from a separate machine account. A leaked token then reaches only this board, plus whether this repo's issues are open or closed, since the board's Auto-close workflow closes any issue moved to Done. Anyone who can merge to `main` can reach the token, and a token from the lead's own account would reach every project the lead has.
+
+1. Create a GitHub account just for this, turn on 2FA, and add it as a **Writer** on the project board only (the board's settings → Manage access).
+2. Signed in as that account, create a classic token with only the `project` scope, and give it an expiry.
+3. In the repo's settings → Environments, create `board`. Under deployment branches, choose "Selected branches and tags" and add a **branch** rule `main`. Don't add a tag rule, and don't choose "Protected branches only".
+4. Only then add the token to that environment as the secret `PROJECT_TOKEN`. Check that the repo has no repository secret with that name.
+5. Run the **Board** workflow by hand (Actions → Board → Run workflow) and check the board. To preview first, run `node scripts/board-sync.mjs --dry-run` locally with `GITHUB_TOKEN` and `PROJECT_TOKEN` set: it prints the moves and writes nothing.
+
 **Your review checklist (step 6):**
 
 - [ ] Does what the issue asks, and nothing extra.
