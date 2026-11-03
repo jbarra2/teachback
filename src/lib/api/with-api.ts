@@ -60,13 +60,32 @@ function failure(
   return errorResponse(new ApiError("INTERNAL"), headers);
 }
 
+/**
+ * Marks a withApi handler with its options, so the route coverage test can tell one from a raw
+ * handler and check that `auth` matches what openapi.yaml says about the operation.
+ */
+const WITH_API = Symbol.for("teachback.withApi");
+
+/** What a withApi handler was built with, or null for anything else. */
+export function withApiOptions(value: unknown): { auth: boolean } | null {
+  if (typeof value !== "function") return null;
+  const mark = (value as unknown as Record<symbol, unknown>)[WITH_API];
+  return typeof mark === "object" && mark !== null
+    ? (mark as { auth: boolean })
+    : null;
+}
+
+export function isWithApiHandler(value: unknown): boolean {
+  return withApiOptions(value) !== null;
+}
+
 export function withApi<P = Record<string, never>>(
   handler: Handler<P>,
   options: WithApiOptions = {},
 ) {
   const { auth = true, maxBodyBytes = LIMITS.jsonBodyBytes } = options;
 
-  return async (
+  const route = async (
     request: Request,
     segment: Segment<P> = {},
   ): Promise<Response> => {
@@ -108,4 +127,5 @@ export function withApi<P = Record<string, never>>(
       return failure(error, request, requestId);
     }
   };
+  return Object.assign(route, { [WITH_API]: { auth } });
 }

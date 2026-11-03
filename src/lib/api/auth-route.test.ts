@@ -539,6 +539,11 @@ describe("auth route: S6, rate limits and the client's IP", () => {
     beforeEach(() => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("TRUSTED_IP_HEADER", "x-real-ip");
+      // A real-looking secret: production refuses .env.test's public one, whatever the shell has.
+      vi.stubEnv(
+        "BETTER_AUTH_SECRET",
+        "a-production-like-secret-that-is-long-enough",
+      );
       // Vitest sets TEST, which production refuses (Better Auth reads it as a test run).
       vi.stubEnv("TEST", undefined);
     });
