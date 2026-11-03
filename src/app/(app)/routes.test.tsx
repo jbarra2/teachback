@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
-import PracticePage from "./courses/[courseId]/practice/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
 import AppNotFound from "./not-found";
@@ -50,13 +49,6 @@ describe("placeholder pages", () => {
       "href",
       "/courses/a%2Fb%3Fc/practice",
     );
-  });
-
-  it("renders the Practice page", () => {
-    render(<PracticePage />);
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Practice" }),
-    ).toBeInTheDocument();
   });
 });
 
