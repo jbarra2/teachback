@@ -21,6 +21,15 @@ type AllowedCase = [name: string, file: string, code: string];
 // A typed `db` whose declaration doesn't itself name $queryRawUnsafe, so only the use is flagged.
 const DB_DECL =
   "declare const db: Record<string, (s: string) => Promise<unknown>>;\n";
+// Prisma.join's real signature, and a client whose raw methods take anything, so only lint stops a
+// plain array or a variable.
+const JOIN_DECL =
+  "declare const Prisma: { join(values: unknown[], separator?: string, prefix?: string, suffix?: string): unknown };\n";
+const RAW_ARRAY_DECL =
+  "declare const db: { $queryRaw(q: readonly string[] | unknown, ...v: unknown[]): Promise<unknown>; $executeRaw(q: readonly string[] | unknown, ...v: unknown[]): Promise<number> };\n";
+// The same for Prisma's namespace, whose `raw` would otherwise come from the generated client.
+const PRISMA_DECL =
+  "declare const Prisma: Record<string, (s: string) => unknown> & { sql(s: TemplateStringsArray, ...v: unknown[]): unknown };\n";
 
 const BLOCKED: Case[] = [
   // Layering: no database access from pages, route handlers or components.
@@ -120,6 +129,292 @@ const BLOCKED: Case[] = [
     "raw SQL in a script",
     "scripts/fix-data.mjs",
     `export const run = (db) => db.$queryRawUnsafe("SELECT 1");\n`,
+    "no-restricted-syntax",
+  ],
+  // Prisma.raw() pastes a string into a $queryRaw template unescaped, so it's raw SQL too.
+  [
+    "Prisma.raw call",
+    "src/lib/services/raw5.ts",
+    `${PRISMA_DECL}export const q = Prisma.raw("ORDER BY " + "name");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.raw by string key",
+    "src/lib/services/raw6.ts",
+    `${PRISMA_DECL}export const q = Prisma["raw"]("x");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.raw by template key",
+    "src/lib/services/raw9.ts",
+    `${PRISMA_DECL}export const q = Prisma[\`raw\`]("x");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw destructured from Prisma",
+    "src/lib/services/raw7.ts",
+    `${PRISMA_DECL}const { raw: r } = Prisma;\nexport const q = r("x");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw imported from a Prisma module",
+    "src/lib/services/raw8.ts",
+    `import { raw } from "@prisma/client/runtime/client";\nexport const q = raw;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.raw in a test",
+    "tests/helpers/raw.ts",
+    `${PRISMA_DECL}export const q = Prisma.raw("x");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw destructured from Prisma by assignment",
+    "src/lib/services/raw10.ts",
+    `${PRISMA_DECL}let r: unknown;\n({ raw: r } = Prisma);\nexport const q = r;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw re-exported from a Prisma module",
+    "src/lib/services/raw11.ts",
+    `export { raw } from "@prisma/client/runtime/client";\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma imported under another name",
+    "src/lib/services/raw12.ts",
+    `import { Prisma as P } from "@/generated/prisma/client";\nexport const q = P;\n`,
+    "no-restricted-syntax",
+  ],
+  // The generated client re-exports `raw` (src/generated/prisma/internal/prismaNamespace.ts), and
+  // that path is the one app code would use.
+  [
+    "raw imported from the generated client",
+    "src/lib/services/raw14.ts",
+    `import { raw } from "@/generated/prisma/internal/prismaNamespace";\nexport const q = raw;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw re-exported from the generated client",
+    "src/lib/services/raw15.ts",
+    `export { raw } from "@/generated/prisma/internal/prismaNamespace";\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "the generated client imported with * as",
+    "src/lib/services/raw16.ts",
+    `import * as client from "@/generated/prisma/client";\nexport const q = client;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw destructured from Prisma by string key",
+    "src/lib/services/raw17.ts",
+    `${PRISMA_DECL}const { "raw": r } = Prisma;\nexport const q = r;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma copied into another name",
+    "src/lib/services/raw18.ts",
+    `${PRISMA_DECL}const P = Prisma;\nexport const q = P;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma re-exported under another name",
+    "src/lib/services/raw19.ts",
+    `export { Prisma as P } from "@/generated/prisma/client";\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "everything re-exported from a Prisma module",
+    "src/lib/services/raw20.ts",
+    `export * from "@prisma/client/runtime/client";\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "raw destructured from Prisma by assignment with a string key",
+    "src/lib/services/raw21.ts",
+    `${PRISMA_DECL}let r: unknown;\n({ "raw": r } = Prisma);\nexport const q = r;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma assigned to another variable",
+    "src/lib/services/raw22.ts",
+    `${PRISMA_DECL}let P: unknown;\nP = Prisma;\nexport const q = P;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "new Prisma.Sql from raw strings",
+    "src/lib/services/raw23.ts",
+    `declare const Prisma: { Sql: new (s: string[], v: unknown[]) => unknown };\nexport const q = new Prisma.Sql(["DROP TABLE x"], []);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Sql imported from the generated client",
+    "src/lib/services/raw24.ts",
+    `import { Sql } from "@/generated/prisma/internal/prismaNamespace";\nexport const q = Sql;\n`,
+    "no-restricted-syntax",
+  ],
+  // Prisma.join pastes its separator, prefix and suffix into the SQL unescaped
+  // (@prisma/client-runtime-utils), and $queryRaw called with a plain array treats every string in
+  // it as SQL text, like a template with no values.
+  [
+    "Prisma.join with a separator",
+    "src/lib/services/raw25.ts",
+    `${JOIN_DECL}export const q = Prisma.join([1, 2], " OR 1=1 OR ");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.join with a prefix and suffix",
+    "src/lib/services/raw26.ts",
+    `${JOIN_DECL}export const q = Prisma.join([1], ",", "(", ")");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw called with an array",
+    "src/lib/services/raw27.ts",
+    `${RAW_ARRAY_DECL}export const r = db.$queryRaw(["SELECT * FROM x WHERE id = " + "1"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$executeRaw called with an array",
+    "src/lib/services/raw28.ts",
+    `${RAW_ARRAY_DECL}export const r = db.$executeRaw(["DELETE FROM x"]);\n`,
+    "no-restricted-syntax",
+  ],
+  // Prisma.sql is typed `sql(strings: readonly string[], ...values)`
+  // (@prisma/client-runtime-utils), so called as a function every string in the array is SQL text.
+  // It's only safe as a tagged template, and $queryRaw/$executeRaw only with a template or a
+  // Prisma.sql`...` written in place: a query held in a variable can't be checked.
+  [
+    "Prisma.sql called with a string array",
+    "src/lib/services/raw29.ts",
+    `${PRISMA_DECL}export const q = Prisma.sql(["SELECT * FROM x WHERE name = '" + "a" + "'"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.sql copied into another name",
+    "src/lib/services/raw30.ts",
+    `${PRISMA_DECL}const s = Prisma.sql;\nexport const q = s;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.sql called through .call",
+    "src/lib/services/raw31.ts",
+    `${PRISMA_DECL}export const q = Prisma.sql.call(null, ["DROP TABLE x"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.sql by string key",
+    "src/lib/services/raw32.ts",
+    `${PRISMA_DECL}export const q = Prisma["sql"](["DROP TABLE x"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "a Prisma helper by computed key",
+    "src/lib/services/raw33.ts",
+    `${PRISMA_DECL}export const q = Prisma["r" + "aw"]("x");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "sql destructured from Prisma",
+    "src/lib/services/raw34.ts",
+    `${PRISMA_DECL}const { sql } = Prisma;\nexport const q = sql;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "join destructured from Prisma by assignment",
+    "src/lib/services/raw35.ts",
+    `${JOIN_DECL}let j: unknown;\n({ join: j } = Prisma);\nexport const q = j;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "sql imported from the generated client",
+    "src/lib/services/raw36.ts",
+    `import { sql } from "@/generated/prisma/internal/prismaNamespace";\nexport const q = sql;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "sqltag imported from the Prisma runtime",
+    "src/lib/services/raw37.ts",
+    `import { sqltag } from "@prisma/client/runtime/client";\nexport const q = sqltag;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "join imported from the generated client",
+    "src/lib/services/raw38.ts",
+    `import { join } from "@/generated/prisma/internal/prismaNamespace";\nexport const q = join;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "sql re-exported from the generated client",
+    "src/lib/services/raw39.ts",
+    `export { sql } from "@/generated/prisma/internal/prismaNamespace";\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma.join copied into another name",
+    "src/lib/services/raw40.ts",
+    `${JOIN_DECL}const j = Prisma.join;\nexport const q = j([1], " OR 1=1 OR ");\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "Prisma renamed while destructuring a dynamic import",
+    "src/lib/services/raw41.ts",
+    `const { Prisma: P } = await import("@/generated/prisma/client");\nexport const q = P;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw called with a variable",
+    "src/lib/services/raw42.ts",
+    `${RAW_ARRAY_DECL}const parts = ["SELECT * FROM x WHERE id = " + "1"];\nexport const r = db.$queryRaw(parts);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$executeRaw called with a variable",
+    "src/lib/services/raw43.ts",
+    `${RAW_ARRAY_DECL}const parts = ["DELETE FROM x"];\nexport const r = db.$executeRaw(parts);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw called with a template from another tag",
+    "src/lib/services/raw49.ts",
+    `${RAW_ARRAY_DECL}export const r = db.$queryRaw(String.raw\`DROP TABLE x\`);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw by string key with an array",
+    "src/lib/services/raw44.ts",
+    `${RAW_ARRAY_DECL}export const r = db["$queryRaw"](["DROP TABLE x"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw called through .call",
+    "src/lib/services/raw45.ts",
+    `${RAW_ARRAY_DECL}export const r = db.$queryRaw.call(db, ["DROP TABLE x"]);\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw copied into another name",
+    "src/lib/services/raw46.ts",
+    `${RAW_ARRAY_DECL}const q = db.$queryRaw;\nexport const r = q;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$executeRaw destructured from the client",
+    "src/lib/services/raw47.ts",
+    `${RAW_ARRAY_DECL}const { $executeRaw } = db;\nexport const r = $executeRaw;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "$queryRaw destructured by string key",
+    "src/lib/services/raw48.ts",
+    `${RAW_ARRAY_DECL}const { "$queryRaw": q } = db;\nexport const r = q;\n`,
+    "no-restricted-syntax",
+  ],
+  [
+    "a whole Prisma module imported with * as",
+    "src/lib/services/raw13.ts",
+    `import * as runtime from "@prisma/client/runtime/client";\nexport const q = runtime;\n`,
     "no-restricted-syntax",
   ],
   // Code execution and raw HTML.
@@ -362,6 +657,76 @@ const ALLOWED: AllowedCase[] = [
     "tagged-template $queryRaw",
     "src/lib/services/map.ts",
     "declare const db: { $queryRaw(s: TemplateStringsArray, ...v: unknown[]): Promise<unknown> };\nexport const rows = db.$queryRaw`SELECT 1`;\n",
+  ],
+  [
+    "Prisma.sql, which parameterizes values",
+    "src/lib/services/sql.ts",
+    `${PRISMA_DECL}const id = "c1";\nexport const q = Prisma.sql\`SELECT 1 WHERE id = \${id}\`;\n`,
+  ],
+  [
+    "String.raw, which isn't SQL",
+    "src/lib/services/pattern.ts",
+    "export const pattern = String.raw`\\d+`;\n",
+  ],
+  [
+    "a raw field on another object",
+    "src/lib/services/fields.ts",
+    `export const pick = (row: { raw: string }) => row.raw;\n`,
+  ],
+  [
+    "named imports from the generated client",
+    "src/lib/services/client.ts",
+    `import { Prisma, PrismaClient } from "@/generated/prisma/client";\nexport const x = [Prisma, PrismaClient];\n`,
+  ],
+  [
+    "Prisma.join with the values only",
+    "src/lib/services/join-values.ts",
+    `${JOIN_DECL}export const q = Prisma.join([1, 2]);\n`,
+  ],
+  [
+    "$queryRaw called with a Prisma.sql query",
+    "src/lib/services/raw-sql-object.ts",
+    `${RAW_ARRAY_DECL}${PRISMA_DECL}export const r = db.$queryRaw(Prisma.sql\`SELECT 1\`);\n`,
+  ],
+  [
+    "Prisma.Sql as a type, for typed queries",
+    "src/lib/services/sql-type.ts",
+    `import type { Prisma } from "@/generated/prisma/client";\nexport type Query = Prisma.Sql;\n`,
+  ],
+  [
+    "Prisma re-exported under its own name",
+    "src/lib/services/reexport.ts",
+    `export { Prisma } from "@/generated/prisma/client";\n`,
+  ],
+  [
+    "tagged-template $executeRaw with a value",
+    "src/lib/services/delete.ts",
+    `declare const db: { $executeRaw(s: TemplateStringsArray, ...v: unknown[]): Promise<number> };\nconst id = "c1";\nexport const n = db.$executeRaw\`DELETE FROM x WHERE id = \${id}\`;\n`,
+  ],
+  [
+    "Prisma.join and Prisma.sql nested in a Prisma.sql query",
+    "src/lib/services/nested.ts",
+    `declare const Prisma: { join(v: unknown[]): unknown; sql(s: TemplateStringsArray, ...v: unknown[]): unknown };\nconst ids = ["a", "b"];\nconst where = Prisma.sql\`id IN (\${Prisma.join(ids)})\`;\nexport const q = Prisma.sql\`SELECT 1 WHERE \${where}\`;\n`,
+  ],
+  [
+    "$queryRaw by string key as a tagged template",
+    "src/lib/services/tagged-key.ts",
+    `declare const db: Record<string, (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>>;\nexport const rows = db["$queryRaw"]\`SELECT 1\`;\n`,
+  ],
+  [
+    "Prisma destructured under its own name from a dynamic import",
+    "src/lib/services/dynamic-prisma.ts",
+    `const { Prisma } = await import("@/generated/prisma/client");\nexport const models = Object.keys(Prisma.ModelName);\n`,
+  ],
+  [
+    "a Prisma error class by its full name",
+    "src/lib/services/errors.ts",
+    `declare const Prisma: { PrismaClientKnownRequestError: new () => Error };\nexport const isKnown = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError;\n`,
+  ],
+  [
+    "a sql field on another object",
+    "src/lib/services/sql-field.ts",
+    `export const pick = (row: { sql: string; join: string }) => [row.sql, row.join];\n`,
   ],
   [
     "console in the logger",

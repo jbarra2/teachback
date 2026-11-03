@@ -23,6 +23,7 @@ import {
   manifestProblems,
   NPM_CONFIG_FILES,
   PACKAGE_JSON_KEYS,
+  ROOT_INSTALL_SCRIPTS,
 } from "../../scripts/lockfile-check.mjs";
 import { repoRoot as root, tempDirs } from "../helpers/temp-dirs";
 
@@ -69,12 +70,23 @@ const good = {
 };
 
 describe("the lists (each change is a lead review)", () => {
-  it("allows install scripts only for esbuild, fsevents and unrs-resolver", () => {
+  // prisma's preinstall checks the Node version; @prisma/engines' postinstall downloads Prisma's
+  // schema engine (migrations). Both were read before they were added (T02).
+  it("allows install scripts only for the reviewed packages", () => {
     expect(INSTALL_SCRIPTS_ALLOWED).toEqual([
+      "@prisma/engines",
       "esbuild",
       "fsevents",
+      "prisma",
       "unrs-resolver",
     ]);
+  });
+
+  it("allows only the reviewed root install scripts, word for word", () => {
+    expect(ROOT_INSTALL_SCRIPTS).toEqual({
+      postinstall: "prisma generate",
+      prepare: "node scripts/install-hooks.mjs",
+    });
   });
 
   it("refuses every npm and yarn config file", () => {
@@ -335,6 +347,23 @@ describe("manifestProblems (before npm ci)", () => {
     [
       "a changed prepare script",
       ({ pkg }) => ((pkg.scripts as Entry).prepare = "node evil.mjs"),
+      "install scripts",
+    ],
+    [
+      "a changed postinstall script",
+      ({ pkg }) =>
+        ((pkg.scripts as Entry).postinstall =
+          "prisma generate && node evil.mjs"),
+      "install scripts",
+    ],
+    [
+      "a removed postinstall script",
+      ({ pkg }) => delete (pkg.scripts as Entry).postinstall,
+      "install scripts",
+    ],
+    [
+      "an install script",
+      ({ pkg }) => ((pkg.scripts as Entry).install = "prisma generate"),
       "install scripts",
     ],
     [
