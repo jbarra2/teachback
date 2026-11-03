@@ -23,6 +23,9 @@ vi.mock("./openapi-spec", async (importOriginal) => ({
             default: only("default"),
           },
         },
+        // Responses documented without a body.
+        put: { responses: { "200": { description: "saved, no body" } } },
+        delete: { responses: { "204": { description: "deleted" } } },
       },
     },
   }),
@@ -46,5 +49,25 @@ describe("expectMatchesOpenApi with status ranges and default", () => {
   it("falls back to default for any other status", async () => {
     await expect(reply("default", 503)).resolves.toBe("default");
     await expect(reply("range", 503)).rejects.toThrow(/body/);
+  });
+});
+
+describe("expectMatchesOpenApi with a response documented without a body", () => {
+  it("passes an empty response", async () => {
+    await expect(
+      expectMatchesOpenApi(new Response(null, { status: 204 }), "DELETE /x"),
+    ).resolves.toBeUndefined();
+    await expect(
+      expectMatchesOpenApi(new Response(null), "PUT /x"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails a JSON body, or any other body, where none is documented", async () => {
+    await expect(
+      expectMatchesOpenApi(Response.json({ ok: true }), "PUT /x"),
+    ).rejects.toThrow(/expected no body/);
+    await expect(
+      expectMatchesOpenApi(new Response("saved"), "PUT /x"),
+    ).rejects.toThrow(/expected no body/);
   });
 });

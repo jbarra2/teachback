@@ -8,6 +8,7 @@
 //   await as(ada).crossSite().call(POST, {...});                         // Sec-Fetch-Site: cross-site
 import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 /** The app's own origin: requests are same-origin unless a test says otherwise. */
 export const appOrigin = () =>
@@ -24,7 +25,8 @@ export interface TestUser {
 
 /**
  * A new account with a real Better Auth session in the test database. Uses Better Auth's server
- * API, which skips the sign-in rate limit, so a test can create as many users as it needs.
+ * API, which skips the sign-in rate limit, so a test can create as many users as it needs. Throws
+ * if the email already has an account (the default email is unique).
  */
 export async function createUser(
   overrides: Partial<Pick<TestUser, "name" | "email" | "password">> = {},
@@ -33,7 +35,19 @@ export async function createUser(
   const email =
     overrides.email ?? `user-${randomUUID().slice(0, 8)}@example.test`;
   const password = overrides.password ?? "correct-horse-battery";
-  await auth.api.signUpEmail({ body: { name, email, password } });
+  const signUp = await auth.api.signUpEmail({
+    body: { name, email, password },
+  });
+  // With autoSignIn off, a taken address gets a stand-in user rather than an error, and signing in
+  // would then return the old account. Tables are emptied per file, not per test.
+  const stored = await db.user.findUnique({
+    where: { email: email.toLowerCase() },
+    select: { id: true },
+  });
+  if (stored?.id !== signUp.user.id)
+    throw new Error(
+      `createUser: ${email} already has an account in this test file. Use a different email.`,
+    );
   const { headers, response } = await auth.api.signInEmail({
     body: { email, password },
     returnHeaders: true,
@@ -86,7 +100,7 @@ export class Caller {
     return new Caller({ ...this.headers, "sec-fetch-site": "cross-site" });
   }
 
-  call(
+  async call(
     handler: RouteHandler,
     { method = "GET", url, params = {}, body, form, headers = {} }: CallOptions,
   ): Promise<Response> {
@@ -94,13 +108,24 @@ export class Caller {
     const merged = new Headers(this.headers);
     for (const [name, value] of Object.entries(headers))
       merged.set(name, value);
+    const target = new URL(url, appOrigin());
     const init: RequestInit = { method, headers: merged };
     if (body !== undefined) {
       init.body = JSON.stringify(body);
       if (!merged.has("content-type"))
         merged.set("content-type", "application/json");
     } else if (form !== undefined) init.body = toFormData(form);
-    return handler(new Request(new URL(url, appOrigin()), init), {
+    let request = new Request(target, init);
+    // A browser sends Content-Length with every body (withApi refuses an oversized one from the
+    // header, before the session check). Request doesn't add it, so count the encoded bytes,
+    // multipart boundary included. A length the test set itself is kept.
+    if (init.body !== undefined && !merged.has("content-length")) {
+      const bytes = await request.arrayBuffer();
+      const sent = new Headers(request.headers);
+      sent.set("content-length", String(bytes.byteLength));
+      request = new Request(target, { method, headers: sent, body: bytes });
+    }
+    return handler(request, {
       params: Promise.resolve(params) as Promise<never>,
     });
   }

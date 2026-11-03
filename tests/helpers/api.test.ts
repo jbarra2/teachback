@@ -5,6 +5,7 @@ import { as, asAnonymous, crossSite, fromOrigin, type TestUser } from "./api";
 // test that uses `fromOrigin` or `params` gets what it asked for. No database: createUser is
 // covered by the integration tests.
 vi.mock("@/lib/auth", () => ({ auth: {} }));
+vi.mock("@/lib/db", () => ({ db: {} }));
 
 const ORIGIN = "https://teachback.example.test";
 const ADA: TestUser = {
@@ -17,6 +18,9 @@ const ADA: TestUser = {
 
 async function echo(request: Request, { params }: { params: Promise<never> }) {
   const type = request.headers.get("content-type") ?? "";
+  const bytes = request.body
+    ? (await request.clone().arrayBuffer()).byteLength
+    : null;
   let body: unknown = null;
   if (type.startsWith("application/json")) body = await request.json();
   else if (type.startsWith("multipart/form-data")) {
@@ -40,6 +44,8 @@ async function echo(request: Request, { params }: { params: Promise<never> }) {
     site: request.headers.get("sec-fetch-site"),
     type,
     extra: request.headers.get("x-extra"),
+    length: request.headers.get("content-length"),
+    bytes,
     params: await (params as Promise<Record<string, string>>),
     body,
   });
@@ -195,5 +201,50 @@ describe("test callers", () => {
       }),
     );
     expect(got).toMatchObject({ type: "text/plain", origin: "null" });
+  });
+
+  // A browser sends Content-Length with every body, and withApi refuses an oversized one from the
+  // header alone, before it checks the session.
+  it("sends Content-Length with a body, counted in bytes, as a browser does", async () => {
+    const json = await seen(
+      await as(ADA).call(echo, {
+        method: "POST",
+        url: "/api/x",
+        body: { name: "Bió 😀" },
+      }),
+    );
+    const sent = JSON.stringify({ name: "Bió 😀" });
+    expect(json.length).toBe(String(Buffer.byteLength(sent)));
+    expect(json.bytes).toBe(Buffer.byteLength(sent));
+
+    const file = new File(["# Notes"], "notes.md", { type: "text/markdown" });
+    const form = await seen(
+      await as(ADA).call(echo, {
+        method: "POST",
+        url: "/api/x",
+        form: { title: "Week 1", file },
+      }),
+    );
+    expect(form.length).toBe(String(form.bytes));
+    expect(form.type).toMatch(/^multipart\/form-data; boundary=/);
+    expect(form.body).toEqual({
+      title: "Week 1",
+      file: "file:notes.md:# Notes",
+    });
+  });
+
+  it("sends no Content-Length without a body, and keeps one a test sets", async () => {
+    const get = await seen(await as(ADA).call(echo, { url: "/api/x" }));
+    expect(get).toMatchObject({ length: null, bytes: null });
+    // A client may claim any length; tests of the header check need to send that claim.
+    const lying = await seen(
+      await as(ADA).call(echo, {
+        method: "POST",
+        url: "/api/x",
+        body: { a: 1 },
+        headers: { "Content-Length": "999999" },
+      }),
+    );
+    expect(lying).toMatchObject({ length: "999999", body: { a: 1 } });
   });
 });

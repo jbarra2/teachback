@@ -80,6 +80,7 @@ describe("assertTestDatabase (the guard before any migrate or truncate)", () => 
     ],
     // Without a port, pg takes PGPORT from the environment while the guard and Prisma use 5432.
     ["no port", "postgresql://u:p@127.0.0.1/teachback_test"],
+    ["a fragment", "postgresql://u:p@127.0.0.1:5434/teachback_test#x"],
   ])("refuses %s", (_name, url) => {
     expect(() => assertTestDatabase(env(url))).toThrow(/test database/i);
   });

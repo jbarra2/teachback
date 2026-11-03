@@ -41,6 +41,8 @@ Only edit your track's folders. Need a change elsewhere? Comment on your issue a
 
 **Everyone:** your own `docs/journal/<your-github-username>.md`. `/finish-task` adds an entry with each task (see `docs/JOURNAL.md`).
 
+**Route coverage list:** a task that adds the handler for an operation listed in `NOT_BUILT_YET` (`tests/contract/route-coverage.test.ts`) removes that operation's line in the same PR, and changes nothing else in that file. The test fails until it does.
+
 **Shared:** `package.json` and `package-lock.json`. Any task may add the dependencies it needs (list them in the PR). On a lockfile merge conflict, run `git checkout origin/main -- package-lock.json && npm install`, then commit.
 
 **Protected (lead only, in their own small PRs):** `openapi/openapi.yaml`, `prisma/schema.prisma`, `prisma/migrations/`, `src/lib/schemas/`. Request changes by commenting on your issue. An issue may explicitly grant an exception.

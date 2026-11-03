@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as openapiRoute from "@/app/api/openapi/route";
+import { LIMITS } from "@/lib/schemas";
 import {
   as,
   asAnonymous,
@@ -76,6 +77,19 @@ describe("withApi with real sessions (the T07 sample)", () => {
     expect(res.status).toBe(403);
     expect(await expectMatchesOpenApi(res, "POST /api/courses")).toMatchObject({
       error: { code: "FORBIDDEN_ORIGIN" },
+    });
+  });
+
+  // The callers send Content-Length as a browser does, so an oversized body is refused from the
+  // header alone, before the session is even looked up.
+  it("S5: an oversized body → 413 before the session check, in the contract's shape", async () => {
+    const res = await asAnonymous().call(update, {
+      ...post,
+      body: { name: "x".repeat(LIMITS.jsonBodyBytes) },
+    });
+    expect(res.status).toBe(413);
+    expect(await expectMatchesOpenApi(res, "POST /api/courses")).toMatchObject({
+      error: { code: "PAYLOAD_TOO_LARGE" },
     });
   });
 

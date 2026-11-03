@@ -27,8 +27,9 @@ type Method = (typeof METHODS)[number];
 const ROUTE_FILE = /^route\.(ts|tsx|js|jsx)$/;
 
 /**
- * Operations whose route a later task adds. Each task removes its line, and the test fails if a
- * listed operation already has a handler, so the list can only shrink.
+ * Operations whose route a later task adds. Each task removes its line in the PR that adds the
+ * handler, whatever its track (PLAN §2), and the test fails if a listed operation already has a
+ * handler, so the list can only shrink.
  */
 const NOT_BUILT_YET: Record<string, string> = {
   getHealth: "T14",

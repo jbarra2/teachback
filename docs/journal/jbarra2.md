@@ -252,6 +252,7 @@ Security defaults can change with the environment. Better Auth skips its own ori
 - The `withApi` mark now records whether a handler requires a session, so route coverage can compare it with each operation's `security`.
 - Dropped the CHECK constraint, and then the trigger, that made the account insert fail in the atomic sign-up test. A spy on Better Auth's account write does the same with no database objects, so a killed run can't leave anything behind.
 - Skipped a fourth review round: the last Medium was in a test's own logic, and breaking the code proved the fix.
+- Let any task remove its own operations from the route coverage test's `NOT_BUILT_YET` list (PLAN §2, CLAUDE.md rule 2). Otherwise every AI-track route (T12, T17, T22) would need an edit to a lead-owned file to pass.
 
 **Hardest part, and how I solved it:**
 The hardest bugs were tests that passed without checking what they claimed. Route coverage never compared a route that needs a session, because none exists yet. The concurrent rate-limit test passed whether or not the two requests actually raced. The duplicate sign-up test compared two duplicates, because the table is emptied per file, not per test. I fixed each by forcing the condition: auth checked with handlers built for the test, both inserts held until they collide, a fresh address. Then I broke the code on purpose to watch each test fail.

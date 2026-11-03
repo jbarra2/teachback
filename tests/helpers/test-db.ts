@@ -9,7 +9,8 @@ import { parseEnv } from "node:util";
 type Env = Record<string, string | undefined>;
 
 const ENV_TEST = path.resolve(import.meta.dirname, "../../.env.test");
-const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+// URL.hostname always brackets IPv6, so ::1 arrives as "[::1]".
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** The values in .env.test, without touching process.env. */
 export function readTestEnv(): Record<string, string> {

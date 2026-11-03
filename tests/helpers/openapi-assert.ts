@@ -118,7 +118,12 @@ export async function expectMatchesOpenApi(
     .split(";")[0]
     .trim()
     .toLowerCase();
-  if (documented.length > 0 && !documented.includes(type))
+  if (documented.length === 0) {
+    // Documented without a body (a 204, say): any body at all is a mismatch.
+    const text = await res.clone().text();
+    if (text.length > 0)
+      problems.push(`expected no body, got ${text.length} characters`);
+  } else if (!documented.includes(type))
     problems.push(
       `expected content-type ${documented.join(" or ")}, got "${type}"`,
     );
