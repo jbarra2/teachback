@@ -35,27 +35,26 @@ Testing that a form can't be submitted twice. My first test clicked the button a
 **What I learned:**
 A disabled button isn't enough protection against double submits; the submit handler needs its own guard. I also learned that `node_modules` doesn't follow branch switches. The repo's lockfile test failed on this branch because packages from my T09 branch were still installed, and `npm prune` fixed it without touching any tracked file.
 
-## T25 · Concept map UI (#25) · Nov 2, 2026
+## T16 · Practice session UI (feedback mocked) (#16) · Nov 1, 2026
 
 <!-- needs-review -->
 
-**What I built:** The `/courses/[courseId]/map` page: a read-only graph of the course's concepts, laid out top to bottom so a concept sits below the ones that lead to it. Each node shows the concept's name, a state-coloured border and a badge with the state in words, and links to practice for that concept. A legend and an "All concepts" text list mean the map doesn't rely on colour alone. The layout lives in `src/components/map/layout.ts`, the map in `concept-map.tsx`, with loading, error-with-retry and empty states.
+**What I built:** The core practice screen at `/courses/[courseId]/practice`. With no `?concept=` it shows a concept picker with mastery badges. With one, it runs the loop: a question card with its source labels, an answer box (4000-character limit with a counter, Ctrl/Cmd+Enter to submit, no double submits), short feedback, and "Next question". The components live in `src/components/practice/`, and they run against the T09 mock endpoints until the real routes land.
 
-**Skills & tools:** React Flow (`@xyflow/react`), dagre graph layout (`@dagrejs/dagre`), React 19 client components and effects with `AbortController`, openapi-fetch typed client with mocks, Next.js 16 async `params`, Tailwind CSS, Vitest + Testing Library (jsdom)
+**Skills & tools:** Next.js 16 App Router (async `params` and `searchParams`), React 19 client components and effects, `AbortController` for request cleanup, the typed openapi-fetch client and its mocks, Vitest + Testing Library (jsdom)
 
-**Asked Claude for:** Build T25 from the issue's acceptance criteria with a plan and tests first, then verify it, run a security review and ship it.
+**Asked Claude for:** Start T16 once T05 and T09 were merged (I checked CI on my open PRs and merged them first), build it from the acceptance criteria, then test it and run a security review.
 
 **Decided / dropped:**
 
-- Built the full React Flow + dagre map rather than the issue's fallback grid of cards, since there was time.
-- Pinned both new packages to exact versions, and checked they're MIT, recently released and have no install scripts.
-- `layoutMap` drops edges to unknown concepts, self-loops and duplicates, so bad data from the API can't break the layout. dagre handles cycles itself.
-- Gave every node a fixed width and height instead of letting React Flow measure them, so nodes show and fit on the first paint.
-- Made the map read-only (no dragging, connecting or selecting) and turned off focus on React Flow's node wrappers, so keyboard users get one tab stop per concept: the link inside it.
-- The map renders only on the client after the data loads, so React Flow's inline styles are set from JavaScript and don't clash with the nonce-based CSP.
+- The answer limit comes from the shared `LIMITS.answer` instead of a hard-coded 4000, so the UI can't drift from the server.
+- Components take an optional `client` prop that defaults to the app's client. Tests pass a client backed by the real mock handlers, or a fake network that fails in a chosen way.
+- Dropped the "Try again" button after a failed submit: it would have bypassed the form's double-submit guard. The answer is kept and Submit sends it again.
+- A malformed `?concept=` shows "Concept not found" without calling the server. The page keys the session on the concept id so a new concept starts fresh.
+- Kept the feedback display minimal (verdict, right, missing, mastery chip) because T23 builds the full version.
 
 **Hardest part, and how I solved it:**
-My render tests couldn't find any of the node links, even though the data loaded. React Flow keeps nodes hidden until it has measured them, and jsdom never measures anything. Giving each node a known `width` and `height` in the layout counts as measured, so the nodes render straight away in tests and in the browser. It also let me drop an inline size style on the node's link in favour of a `size-full` class.
+The first version loaded the question with a function called from `useEffect` that set a loading state right away, and the React hooks lint rule rejected it ("calling setState synchronously within an effect"). I restructured both the session and the concept picker so the effect only sets state when the request finishes, and "Next question" and "Try again" became event handlers that reset the state and bump a counter the effect depends on. That also made cancelling simple: each run of the effect owns its own `AbortController` and aborts it in cleanup.
 
 **What I learned:**
-Libraries that depend on layout measurement need extra setup in jsdom: React Flow needed `ResizeObserver` and `DOMMatrixReadOnly` stubs, and nodes with known sizes. I also learned to test a layout by its properties (with 100 concepts, no two nodes overlap and every edge points downward) rather than exact coordinates, which would break on any dagre update.
+A disabled button doesn't stop two submits fired in the same tick (a click plus Ctrl+Enter), because the `pending` state only shows up on the next render. A ref checked at the top of the submit handler closes that gap. I also learned that an effect should only start the async work and react to its result. Resetting state belongs in the event handler that triggers the reload.

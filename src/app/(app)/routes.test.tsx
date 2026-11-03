@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
-import PracticePage from "./courses/[courseId]/practice/page";
+import MapPage from "./courses/[courseId]/map/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
 import AppNotFound from "./not-found";
@@ -52,10 +52,10 @@ describe("placeholder pages", () => {
     );
   });
 
-  it("renders the Practice page", () => {
-    render(<PracticePage />);
+  it("renders the Concept map page", () => {
+    render(<MapPage />);
     expect(
-      screen.getByRole("heading", { level: 1, name: "Practice" }),
+      screen.getByRole("heading", { level: 1, name: "Concept map" }),
     ).toBeInTheDocument();
   });
 });
