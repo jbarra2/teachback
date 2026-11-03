@@ -35,28 +35,26 @@ Testing that a form can't be submitted twice. My first test clicked the button a
 **What I learned:**
 A disabled button isn't enough protection against double submits; the submit handler needs its own guard. I also learned that `node_modules` doesn't follow branch switches. The repo's lockfile test failed on this branch because packages from my T09 branch were still installed, and `npm prune` fixed it without touching any tracked file.
 
-## T15 · Notes library & upload UI (#15) · Nov 2, 2026
+## T16 · Practice session UI (feedback mocked) (#16) · Nov 1, 2026
 
 <!-- needs-review -->
 
-**What I built:** The screens that get notes into the app. Login, signup and sign-out now go through Better Auth's client, with friendly errors (including the rate-limit message) and a safe return to the page in `?next=`. `/courses` lists and creates courses, and `/courses/[courseId]` uploads notes as a file or pasted text, shows each document's status while it processes, and lists the concepts once notes are ready. The main files are in `src/components/notes` and `src/components/auth`, plus a session-aware nav (`nav-auth.tsx`).
+**What I built:** The core practice screen at `/courses/[courseId]/practice`. With no `?concept=` it shows a concept picker with mastery badges. With one, it runs the loop: a question card with its source labels, an answer box (4000-character limit with a counter, Ctrl/Cmd+Enter to submit, no double submits), short feedback, and "Next question". The components live in `src/components/practice/`, and they run against the T09 mock endpoints until the real routes land.
 
-**Skills & tools:** React 19 client components and effects, polling with `setTimeout`, backoff and `AbortController`, Better Auth's React client (`useSession`, sign-in/up/out), openapi-fetch with multipart `FormData`, Next.js 16 App Router (async `searchParams`, `useRouter`), Vitest + Testing Library with fake timers
+**Skills & tools:** Next.js 16 App Router (async `params` and `searchParams`), React 19 client components and effects, `AbortController` for request cleanup, the typed openapi-fetch client and its mocks, Vitest + Testing Library (jsdom)
 
-**Asked Claude for:** Build T15 from the issue's acceptance criteria with a plan and tests first, then verify it, run a security review and ship it.
+**Asked Claude for:** Start T16 once T05 and T09 were merged (I checked CI on my open PRs and merged them first), build it from the acceptance criteria, then test it and run a security review.
 
 **Decided / dropped:**
 
-- Auth errors are fixed text picked by status (wrong login, rate limit, bad input, network), never the server's own text.
-- Sign-up signs in as a second step, because auto sign-in is off on the server; if that step fails, the form suggests logging in instead, so it doesn't reveal whether an account exists.
-- The login redirect only follows `?next=` through the shared `safeNextPath` check, tested with outside URLs.
-- Each pending document polls itself, so leaving the page or a document finishing stops its timer. Polls wait twice as long after each failure, up to 30 s, and stop on a 404.
-- Files are checked before upload (`.txt`, `.md` or `.pdf`, not empty, under 4 MB minus room for the other form fields), and the title is prefilled from the file name.
-- Moved the upload request into its own `uploadDocument()` function, tested in Node, instead of testing multipart inside the form's jsdom tests.
-- Renamed the pasted-text box to "Pasted notes" because "Notes" clashed with the section heading for screen readers.
+- The answer limit comes from the shared `LIMITS.answer` instead of a hard-coded 4000, so the UI can't drift from the server.
+- Components take an optional `client` prop that defaults to the app's client. Tests pass a client backed by the real mock handlers, or a fake network that fails in a chosen way.
+- Dropped the "Try again" button after a failed submit: it would have bypassed the form's double-submit guard. The answer is kept and Submit sends it again.
+- A malformed `?concept=` shows "Concept not found" without calling the server. The page keys the session on the concept id so a new concept starts fresh.
+- Kept the feedback display minimal (verdict, right, missing, mastery chip) because T23 builds the full version.
 
 **Hardest part, and how I solved it:**
-Testing the upload. In jsdom the form's request failed, because jsdom's `File` isn't the `File` that Node's `FormData` accepts, so the file came through as the text "[object File]". A real browser has only one `File`, so it was a test-environment problem, and the test config isn't mine to change. I moved the request into an `uploadDocument()` function tested in Node against the mocks with a real multipart body, and the form tests pass in a stand-in upload that records what the form would send.
+The first version loaded the question with a function called from `useEffect` that set a loading state right away, and the React hooks lint rule rejected it ("calling setState synchronously within an effect"). I restructured both the session and the concept picker so the effect only sets state when the request finishes, and "Next question" and "Try again" became event handlers that reset the state and bump a counter the effect depends on. That also made cancelling simple: each run of the effect owns its own `AbortController` and aborts it in cleanup.
 
 **What I learned:**
-How to write polling that can't leak: one timer per document, cleared and its request aborted on unmount, with backoff on errors. Fake timers let me check the exact delays (2 s, then 4, 8, 16, capped at 30) and that nothing fires after unmount. I also learned that two different `File` classes can exist in a test environment, and that moving the network call out of the component made both sides easier to test.
+A disabled button doesn't stop two submits fired in the same tick (a click plus Ctrl+Enter), because the `pending` state only shows up on the next render. A ref checked at the top of the submit handler closes that gap. I also learned that an effect should only start the async work and react to its result. Resetting state belongs in the event handler that triggers the reload.

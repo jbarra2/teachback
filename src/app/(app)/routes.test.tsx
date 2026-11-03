@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
 import MapPage from "./courses/[courseId]/map/page";
-import PracticePage from "./courses/[courseId]/practice/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
 import AppNotFound from "./not-found";
@@ -62,13 +61,10 @@ describe("pages", () => {
     );
   });
 
-  it.each([
-    ["Practice", PracticePage],
-    ["Concept map", MapPage],
-  ])("renders the %s page", (heading, Page) => {
-    render(<Page />);
+  it("renders the Concept map page", () => {
+    render(<MapPage />);
     expect(
-      screen.getByRole("heading", { level: 1, name: heading }),
+      screen.getByRole("heading", { level: 1, name: "Concept map" }),
     ).toBeInTheDocument();
   });
 });
