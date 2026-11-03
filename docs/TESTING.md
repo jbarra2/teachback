@@ -34,7 +34,7 @@ Security and stability are **acceptance criteria**, not extras. A task isn't don
 
 ## §3 Security matrix (required integration tests for every API route)
 
-Use the helpers from `tests/helpers/`. Name the tests by ID, e.g. `it("S2: other user's course → 404")`.
+Use the helpers from `tests/helpers/`. Name the tests by ID, e.g. `it("S2: other user's course → 404")`. `src/lib/api/with-api.int.test.ts` is the worked example. Every error response shares one schema whose `code` allows any error code, so `expectMatchesOpenApi` can't tell a 401 `UNAUTHENTICATED` from a 401 `NOT_FOUND`: also assert the code, e.g. `expect(await expectMatchesOpenApi(res, "GET /api/courses")).toMatchObject({ error: { code: "UNAUTHENTICATED" } })`.
 
 | ID     | Check                                                                                                         | Expected                                                                     | Applies to                                                                   |
 | ------ | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -54,21 +54,24 @@ Uploads also need: renamed binary → 400, scanned/empty PDF → 422, invalid UT
 
 ## §4 Test types, locations, coverage
 
-| Type        | Where                                        | Runs with                                                         | Notes                                                                                                                                                                                               |
-| ----------- | -------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit        | `src/**/*.test.ts(x)`                        | `npm run test`                                                    | Pure logic and components (Testing Library + jsdom). No DB, no network.                                                                                                                             |
-| Integration | `src/**/*.int.test.ts`                       | `npm run test:int`                                                | Real Postgres (`db-test`, 127.0.0.1:5434), real Better Auth sessions, route handlers called directly as functions, fake AI, `runAfterResponse` runs inline. Serial. Tables truncated between files. |
-| Contract    | inside integration tests + `tests/contract/` | `npm run test:int`, `npm run api:lint`, `npm run api:types:check` | Responses validated against openapi.yaml. Every spec operation has a handler and vice versa. Generated client types are fresh.                                                                      |
-| E2E         | `tests/e2e/*.spec.ts`                        | `npm run test:e2e`                                                | Playwright against a production build. Happy path + security (T29).                                                                                                                                 |
-| Eval        | `fixtures/eval/`                             | `npm run eval`                                                    | Real Claude. Grading quality + prompt-injection resistance (T27). Not in CI (costs credits).                                                                                                        |
+| Type        | Where                                        | Runs with                                                         | Notes                                                                                                                                                                                                                                                        |
+| ----------- | -------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Unit        | `src/**/*.test.ts(x)`                        | `npm run test`                                                    | Pure logic and components (Testing Library + jsdom). No DB, no network.                                                                                                                                                                                      |
+| Integration | `src/**/*.int.test.ts`, `tests/integration/` | `npm run test:int`                                                | Real Postgres (`db-test`, 127.0.0.1:5434), real Better Auth sessions, route handlers called directly as functions, fake AI, `runAfterResponse` runs inline. Serial. Every table emptied between files. Refuses any database that isn't a local `*_test` one. |
+| Contract    | inside integration tests + `tests/contract/` | `npm run test:int`, `npm run api:lint`, `npm run api:types:check` | Responses validated against openapi.yaml. Every spec operation has a handler and vice versa. Generated client types are fresh.                                                                                                                               |
+| E2E         | `tests/e2e/*.spec.ts`                        | `npm run test:e2e`                                                | Playwright against a production build. Happy path + security (T29).                                                                                                                                                                                          |
+| Eval        | `fixtures/eval/`                             | `npm run eval`                                                    | Real Claude. Grading quality + prompt-injection resistance (T27). Not in CI (costs credits).                                                                                                                                                                 |
 
-**Coverage thresholds** (`npm run test:ci` fails below these):
+A bare `npx vitest` (or an editor's Vitest extension) runs all three projects, integration included, so it needs `db-test` running (`npm run db:up`); if it isn't, the run stops with "The test database isn't running". `npm run test` runs the unit projects only.
 
-| Scope                                                              | Lines | Branches |
-| ------------------------------------------------------------------ | ----- | -------- |
-| Server code overall: `src/lib/{api,ai,ingest,mastery,services}/**` | 80%   | 75%      |
-| `src/lib/mastery/**`, `src/lib/ai/verify-evidence.ts`              | 95%   | 90%      |
-| `src/lib/api/**`, `src/lib/ingest/**`                              | 90%   | 85%      |
+**Coverage thresholds** (`npm run test:ci` fails below these; they live in `vitest.config.mts`):
+
+| Scope                                                                    | Lines | Branches                                 |
+| ------------------------------------------------------------------------ | ----- | ---------------------------------------- |
+| Server code overall: `src/lib/{api,ai,ingest,mastery,services}/**`       | 80%   | 75%                                      |
+| `src/lib/mastery/**`, `src/lib/ai/verify-evidence.ts`                    | 95%   | 90%                                      |
+| `src/lib/api/**` (withApi, the auth route: every request passes through) | 100%  | 100% (and 100% functions and statements) |
+| `src/lib/ingest/**`                                                      | 90%   | 85%                                      |
 
 Coverage `include` lists exactly these folders, so the frontend client, mocks, generated code and config files don't distort the numbers. UI components are covered by component tests and e2e instead of thresholds.
 

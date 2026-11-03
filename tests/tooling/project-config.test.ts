@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { load } from "js-yaml";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import nextConfig from "../../next.config";
 
 // Pins the settings the quality gate and the security decisions depend on, so a change to them
@@ -34,9 +34,15 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
     );
   });
 
-  it("test:ci checks the test inventory, then runs the tests with coverage", () => {
+  it("test:ci checks the test inventory, then runs every project with coverage", () => {
     expect(scripts["test:ci"]).toBe(
-      "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --coverage",
+      "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --project integration --coverage",
+    );
+  });
+
+  it("test:int checks the test inventory, then runs the integration project", () => {
+    expect(scripts["test:int"]).toBe(
+      "node scripts/check-test-inventory.mjs && vitest run --project integration",
     );
   });
 
@@ -68,6 +74,7 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
       "start",
       "test",
       "test:ci",
+      "test:int",
       "typecheck",
       "verify",
     ]);
@@ -747,6 +754,9 @@ describe("team logins (.github/team.json, CODEOWNERS)", () => {
       "/src/app/api/health/",
       "/src/app/api/openapi/",
       "/src/app/api/docs/",
+      // T07: the test database guard and the setup that migrates and empties it.
+      "/tests/helpers/",
+      "/tests/integration/",
     ])
       expect(patterns).toContain(p);
   });
@@ -826,5 +836,62 @@ describe("redocly.yaml (npm run api:lint)", () => {
       ".redocly.lint-ignore.yaml",
     ])
       expect(readdirSync(root), other).not.toContain(other);
+  });
+});
+
+// The integration project's safety and the coverage thresholds (TESTING §4) live in the Vitest
+// config: changing them is a deliberate edit here, which needs the lead's review.
+describe("vitest.config.mts", () => {
+  type Project = { test: Record<string, unknown> };
+  let config: {
+    test: { projects: Project[]; coverage: Record<string, unknown> };
+  };
+  beforeAll(async () => {
+    config = (await import("../../vitest.config.mjs")).default as typeof config;
+  });
+
+  const project = (name: string) =>
+    config.test.projects.find((p) => p.test.name === name)?.test;
+
+  it("has exactly the unit, unit-dom and integration projects", () => {
+    expect(config.test.projects.map((p) => p.test.name)).toEqual([
+      "unit",
+      "unit-dom",
+      "integration",
+    ]);
+  });
+
+  it("runs integration tests one file at a time, after the guarded setup", () => {
+    expect(project("integration")).toMatchObject({
+      environment: "node",
+      include: ["src/**/*.int.test.ts", "tests/**/*.int.test.ts"],
+      globalSetup: ["./tests/integration/global-setup.ts"],
+      setupFiles: ["./tests/integration/setup.ts"],
+      fileParallelism: false,
+    });
+  });
+
+  it("keeps integration tests out of the unit projects", () => {
+    for (const name of ["unit", "unit-dom"])
+      expect(project(name)?.exclude).toContain("**/*.int.test.ts");
+  });
+
+  it("enforces TESTING §4's coverage thresholds, with src/lib/api at 100%", () => {
+    expect(config.test.coverage.thresholds).toEqual({
+      lines: 80,
+      branches: 75,
+      "src/lib/api/**": {
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
+      },
+      "src/lib/ingest/**": { lines: 90, branches: 85 },
+      "src/lib/mastery/**": { lines: 95, branches: 90 },
+      "src/lib/ai/verify-evidence.ts": { lines: 95, branches: 90 },
+    });
+    const testing = readFileSync(path.join(root, "docs/TESTING.md"), "utf8");
+    expect(testing).toMatch(/\| `src\/lib\/api\/\*\*`[^|]*\| 100% +\| 100%/);
+    expect(testing).toMatch(/\| `src\/lib\/ingest\/\*\*` +\| 90% +\| 85%/);
   });
 });

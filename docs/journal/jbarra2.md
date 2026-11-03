@@ -223,3 +223,38 @@ The bugs that mattered were in places where my tests didn't match the real envir
 
 **What I learned:**
 Security defaults can change with the environment. Better Auth skips its own origin check under `NODE_ENV=test` and trusts a single `X-Forwarded-For` value, so I set those options explicitly and tested them. I also learned to distrust test fakes in exactly the place a check depends on: the in-memory adapter, hand-built requests, and mocked sessions each hid a gap that only a live run against PostgreSQL and real HTTP showed.
+
+## T07 · Test infrastructure: integration DB, auth helpers, contract validation (#7) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** The setup that lets every route be tested against the real database, sessions and API contract.
+
+- A Vitest `integration` project:
+  - loads `.env.test` over the shell and `.env`;
+  - migrates the test database once and empties every table between files;
+  - runs files one at a time.
+  - It refuses any database that isn't a local `*_test` one, before migrating, before each reset, and again by asking the connection which database it reached.
+- Helpers in `tests/helpers/`: `createUser`, `as(user).call`, `asAnonymous`, `fromOrigin`, `crossSite`, and `expectMatchesOpenApi`, which checks status, headers, media type and body against `openapi.yaml` with Ajv.
+- A route coverage test: every operation has a handler, every handler is documented and wrapped in `withApi`, and each one requires a session exactly where the spec does.
+- `test:int`, and `test:ci` with the TESTING §4 coverage thresholds (`src/lib/api` held at 100%).
+- Integration tests for the T02 and T06 checks that had only been run by hand: column caps, foreign keys, unique indexes, ids, atomic sign-up, cascade delete, the auth flows and the database rate limiter.
+
+**Skills & tools:** Vitest projects and global setup, Prisma 7 `migrate deploy`, PostgreSQL system catalogs, Ajv (JSON Schema 2020-12), Better Auth, Docker PostgreSQL, mutation testing, security and test reviews
+
+**Asked Claude for:** After merging T06, I chose to do T07 before the board sync (T40), approved `ajv` and `ajv-formats`, and kept `src/lib/api` at 100% coverage. After three review rounds I moved on to `/test-task`, then had Claude run the manual checks and handle the open items itself.
+
+**Decided / dropped:**
+
+- Emptied tables with `deleteMany` in one transaction rather than `TRUNCATE`: same result, and no raw SQL built from table names.
+- Made the guard accept only URLs every client reads the same way: a loopback host with a port, a plain name ending in `_test`, and no query. `pg` takes the host, port and database from query parameters over the URL's own, and the adapter ignores `?schema=` that the migrate command honours.
+- The global setup reads `.env.test` without writing it into `process.env`. Loading it there leaked the test secret into the unit tests' workers and broke T06's production-mode tests.
+- The `withApi` mark now records whether a handler requires a session, so route coverage can compare it with each operation's `security`.
+- Dropped the CHECK constraint, and then the trigger, that made the account insert fail in the atomic sign-up test. A spy on Better Auth's account write does the same with no database objects, so a killed run can't leave anything behind.
+- Skipped a fourth review round: the last Medium was in a test's own logic, and breaking the code proved the fix.
+
+**Hardest part, and how I solved it:**
+The hardest bugs were tests that passed without checking what they claimed. Route coverage never compared a route that needs a session, because none exists yet. The concurrent rate-limit test passed whether or not the two requests actually raced. The duplicate sign-up test compared two duplicates, because the table is emptied per file, not per test. I fixed each by forcing the condition: auth checked with handlers built for the test, both inserts held until they collide, a fresh address. Then I broke the code on purpose to watch each test fail.
+
+**What I learned:**
+A safety check only works if it reads its input the same way as the thing it protects. My guard parsed the database URL one way while `pg` and Prisma's migrate engine handled query parameters, encoded paths and missing ports differently, so I narrowed the guard to URLs they all read the same and checked the live connection too. I also learned that an error nobody can read is only half a fix: Vitest crashed while printing the guard's refusal, so I made the setup's errors printable and checked them in a live run.

@@ -360,6 +360,31 @@ describe("withApi: every response", () => {
     expect(same.status).toBe(200);
   });
 
+  // The route coverage test (tests/contract/route-coverage.test.ts) uses the mark to prove every
+  // exported route handler went through withApi.
+  it("marks its handlers, and only its handlers, as withApi handlers", async () => {
+    const { isWithApiHandler } = await import("./with-api");
+    expect(isWithApiHandler(withApi(ok))).toBe(true);
+    expect(isWithApiHandler(withApi(ok, { auth: false }))).toBe(true);
+    expect(isWithApiHandler(async () => ok())).toBe(false);
+    expect(isWithApiHandler(undefined)).toBe(false);
+    expect(isWithApiHandler({})).toBe(false);
+  });
+
+  it("records whether the handler requires a session", async () => {
+    const { withApiOptions } = await import("./with-api");
+    expect(withApiOptions(withApi(ok))).toEqual({ auth: true });
+    expect(withApiOptions(withApi(ok, { auth: false }))).toEqual({
+      auth: false,
+    });
+    expect(withApiOptions(async () => ok())).toBeNull();
+    expect(
+      withApiOptions(
+        Object.assign(() => ok(), { [Symbol.for("teachback.withApi")]: true }),
+      ),
+    ).toBeNull();
+  });
+
   it("accepts the rateLimit option, which changes nothing until T14 enforces it", async () => {
     const response = await withApi(ok, { rateLimit: "ai" })(
       request(),
