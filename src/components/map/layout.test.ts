@@ -51,6 +51,27 @@ describe("layoutMap", () => {
     });
   });
 
+  it("keeps every node clickable, overriding React Flow's read-only pointer-events: none", () => {
+    const { nodes } = layoutMap(courseMap, COURSE_ID);
+    for (const node of nodes)
+      expect(node.style).toMatchObject({ pointerEvents: "all" });
+  });
+
+  // React Flow reads this as the edge's aria-label. Edges need measured handles, which jsdom
+  // can't give, so the component tests can't see them; this checks the label at the source.
+  it("labels each edge with its concepts' names for screen readers", () => {
+    const { edges } = layoutMap(courseMap, COURSE_ID);
+    expect(
+      edges.find(
+        (edge) =>
+          edge.source === CONCEPT_IDS.membrane &&
+          edge.target === CONCEPT_IDS.osmosis,
+      ),
+    ).toMatchObject({ ariaLabel: "Cell membrane leads to Osmosis" });
+    for (const edge of edges)
+      expect(edge.ariaLabel).toMatch(/^.+ leads to .+$/);
+  });
+
   it("places a concept below the ones that lead to it", () => {
     const { nodes, edges } = layoutMap(courseMap, COURSE_ID);
     const y = (id: string) => nodes.find((node) => node.id === id)!.position.y;
@@ -77,7 +98,12 @@ describe("layoutMap", () => {
       COURSE_ID,
     );
     expect(edges).toEqual([
-      { id: `${cell}->${membrane}`, source: cell, target: membrane },
+      {
+        id: `${cell}->${membrane}`,
+        source: cell,
+        target: membrane,
+        ariaLabel: "Cell theory leads to Cell membrane",
+      },
     ]);
   });
 

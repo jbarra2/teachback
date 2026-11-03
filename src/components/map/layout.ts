@@ -28,14 +28,22 @@ export function layoutMap(
   map: CourseMap,
   courseId: string,
 ): { nodes: ConceptNode[]; edges: Edge[] } {
-  const ids = new Set(map.nodes.map((node) => node.id));
+  const names = new Map(map.nodes.map((node) => [node.id, node.name]));
   const seen = new Set<string>();
   const edges: Edge[] = [];
   for (const { from, to } of map.edges) {
     const id = `${from}->${to}`;
-    if (from === to || !ids.has(from) || !ids.has(to) || seen.has(id)) continue;
+    const fromName = names.get(from);
+    const toName = names.get(to);
+    if (from === to || !fromName || !toName || seen.has(id)) continue;
     seen.add(id);
-    edges.push({ id, source: from, target: to });
+    // Without a label, screen readers hear "Edge from <id> to <id>".
+    edges.push({
+      id,
+      source: from,
+      target: to,
+      ariaLabel: `${fromName} leads to ${toName}`,
+    });
   }
 
   // dagre reads width and height, and writes the center's x and y.
@@ -60,6 +68,9 @@ export function layoutMap(
       // A known size counts as measured: React Flow shows and fits the nodes on first paint.
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
+      // React Flow gives a node that can't be dragged or selected `pointer-events: none`, which
+      // would swallow clicks on its link. Its own style is applied first, so this wins.
+      style: { pointerEvents: "all" },
       data: {
         name: node.name,
         state: node.state,

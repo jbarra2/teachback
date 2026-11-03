@@ -91,6 +91,25 @@ describe("ConceptMap", () => {
     );
   });
 
+  // Regression: a read-only node gets an inline `pointer-events: none` from React Flow, so a mouse
+  // click fell through to the pane and never reached the link (PR #60 review).
+  it("lets a mouse click reach a node's link", async () => {
+    render(<ConceptMap courseId={COURSE_ID} client={client()} />);
+    await screen.findByRole("region", { name: "Concept map" });
+    const link = within(mapRegion()).getByRole("link", { name: /^Osmosis/ });
+    const node = link.closest<HTMLElement>(".react-flow__node");
+    expect(node).not.toBeNull();
+    expect(node).toHaveStyle({ pointerEvents: "all" });
+  });
+
+  it("offers a way to skip past the map to the concept list", async () => {
+    render(<ConceptMap courseId={COURSE_ID} client={client()} />);
+    await screen.findByRole("region", { name: "Concept map" });
+    expect(
+      screen.getByRole("link", { name: "Skip to the concept list" }),
+    ).toHaveAttribute("href", "#all-concepts");
+  });
+
   it("explains the colors with a legend that names each state", async () => {
     render(<ConceptMap courseId={COURSE_ID} client={client()} />);
     const legend = await screen.findByRole("list", { name: "Legend" });

@@ -27,6 +27,8 @@ export function ConceptNode({ data }: NodeProps<ConceptNodeType>) {
       />
       <Link
         href={data.href}
+        // The name may be cut to one line; this shows all of it on hover.
+        title={data.name}
         className={cn(
           // Fills the node, whose size layoutMap sets.
           "flex size-full flex-col items-start justify-center gap-1 rounded-lg border-2 bg-background px-3 text-left shadow-sm hover:bg-surface",

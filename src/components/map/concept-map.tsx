@@ -12,7 +12,14 @@ import {
 } from "@xyflow/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { EmptyState, ErrorState, MasteryBadge, Spinner } from "@/components/ui";
+import {
+  cn,
+  EmptyState,
+  ErrorState,
+  focusRing,
+  MasteryBadge,
+  Spinner,
+} from "@/components/ui";
 import {
   ApiError,
   api,
@@ -108,6 +115,13 @@ export function ConceptMap({ courseId, client = api }: ConceptMapProps) {
         Arrows point from a concept to the ones that build on it. Select a
         concept to practice it.
       </p>
+      {/* Every concept is also in the list below, so keyboard users can skip the map's tab stops. */}
+      <a
+        href="#all-concepts"
+        className={cn("self-start text-sm underline", focusRing)}
+      >
+        Skip to the concept list
+      </a>
       <div
         role="region"
         aria-label="Concept map"
@@ -124,7 +138,15 @@ export function ConceptMap({ courseId, client = api }: ConceptMapProps) {
           // The links inside the nodes take focus; the node wrappers would be a second stop.
           nodesFocusable={false}
           edgesFocusable={false}
+          // Its keyboard hints are about selecting and moving nodes, which this map doesn't allow.
+          disableKeyboardA11y
+          // The wheel and touch scroll the page; pinch and the controls zoom the map.
+          zoomOnScroll={false}
+          preventScrolling={false}
+          colorMode="system"
           fitView
+          // A small course isn't blown up to fill the map.
+          fitViewOptions={{ maxZoom: 1 }}
           minZoom={0.1}
         >
           <Background />
@@ -132,22 +154,22 @@ export function ConceptMap({ courseId, client = api }: ConceptMapProps) {
         </ReactFlow>
       </div>
       <section aria-labelledby="all-concepts" className="flex flex-col gap-2">
-        <h2 id="all-concepts" className="text-lg font-semibold">
+        {/* tabIndex lets the skip link move keyboard focus here, not just scroll. */}
+        <h2 id="all-concepts" tabIndex={-1} className="text-lg font-semibold">
           All concepts
         </h2>
         <ul className="flex flex-col gap-2">
-          {state.status === "ready" &&
-            state.map.nodes.map((node) => (
-              <li key={node.id} className="flex items-center gap-3">
-                <Link
-                  href={practiceHref(courseId, node.id)}
-                  className="text-primary underline"
-                >
-                  {node.name}
-                </Link>
-                <MasteryBadge state={node.state} />
-              </li>
-            ))}
+          {state.map.nodes.map((node) => (
+            <li key={node.id} className="flex items-center gap-3">
+              <Link
+                href={practiceHref(courseId, node.id)}
+                className="text-primary underline"
+              >
+                {node.name}
+              </Link>
+              <MasteryBadge state={node.state} />
+            </li>
+          ))}
         </ul>
       </section>
     </div>
