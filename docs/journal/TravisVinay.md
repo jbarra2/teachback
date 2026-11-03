@@ -34,3 +34,28 @@ Testing that a form can't be submitted twice. My first test clicked the button a
 
 **What I learned:**
 A disabled button isn't enough protection against double submits; the submit handler needs its own guard. I also learned that `node_modules` doesn't follow branch switches. The repo's lockfile test failed on this branch because packages from my T09 branch were still installed, and `npm prune` fixed it without touching any tracked file.
+
+## T25 · Concept map UI (#25) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** The `/courses/[courseId]/map` page: a read-only graph of the course's concepts, laid out top to bottom so a concept sits below the ones that lead to it. Each node shows the concept's name, a state-coloured border and a badge with the state in words, and links to practice for that concept. A legend and an "All concepts" text list mean the map doesn't rely on colour alone. The layout lives in `src/components/map/layout.ts`, the map in `concept-map.tsx`, with loading, error-with-retry and empty states.
+
+**Skills & tools:** React Flow (`@xyflow/react`), dagre graph layout (`@dagrejs/dagre`), React 19 client components and effects with `AbortController`, openapi-fetch typed client with mocks, Next.js 16 async `params`, Tailwind CSS, Vitest + Testing Library (jsdom)
+
+**Asked Claude for:** Build T25 from the issue's acceptance criteria with a plan and tests first, then verify it, run a security review and ship it.
+
+**Decided / dropped:**
+
+- Built the full React Flow + dagre map rather than the issue's fallback grid of cards, since there was time.
+- Pinned both new packages to exact versions, and checked they're MIT, recently released and have no install scripts.
+- `layoutMap` drops edges to unknown concepts, self-loops and duplicates, so bad data from the API can't break the layout. dagre handles cycles itself.
+- Gave every node a fixed width and height instead of letting React Flow measure them, so nodes show and fit on the first paint.
+- Made the map read-only (no dragging, connecting or selecting) and turned off focus on React Flow's node wrappers, so keyboard users get one tab stop per concept: the link inside it.
+- The map renders only on the client after the data loads, so React Flow's inline styles are set from JavaScript and don't clash with the nonce-based CSP.
+
+**Hardest part, and how I solved it:**
+My render tests couldn't find any of the node links, even though the data loaded. React Flow keeps nodes hidden until it has measured them, and jsdom never measures anything. Giving each node a known `width` and `height` in the layout counts as measured, so the nodes render straight away in tests and in the browser. It also let me drop an inline size style on the node's link in favour of a `size-full` class.
+
+**What I learned:**
+Libraries that depend on layout measurement need extra setup in jsdom: React Flow needed `ResizeObserver` and `DOMMatrixReadOnly` stubs, and nodes with known sizes. I also learned to test a layout by its properties (with 100 concepts, no two nodes overlap and every edge points downward) rather than exact coordinates, which would break on any dagre update.

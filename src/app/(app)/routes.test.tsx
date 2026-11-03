@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
-import MapPage from "./courses/[courseId]/map/page";
 import PracticePage from "./courses/[courseId]/practice/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
@@ -53,13 +52,10 @@ describe("placeholder pages", () => {
     );
   });
 
-  it.each([
-    ["Practice", PracticePage],
-    ["Concept map", MapPage],
-  ])("renders the %s page", (heading, Page) => {
-    render(<Page />);
+  it("renders the Practice page", () => {
+    render(<PracticePage />);
     expect(
-      screen.getByRole("heading", { level: 1, name: heading }),
+      screen.getByRole("heading", { level: 1, name: "Practice" }),
     ).toBeInTheDocument();
   });
 });
