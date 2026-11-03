@@ -1,10 +1,8 @@
 "use client";
 // Shared state for the login and signup forms: values, errors, and submit handling.
 import { useRef, useState, type FormEvent } from "react";
+import { GENERIC_MESSAGE } from "@/lib/api-client/errors";
 import type { FieldErrors } from "./validation";
-
-export const NOT_CONNECTED = "Sign-in isn't connected yet. It's coming soon.";
-export const SUBMIT_FAILED = "Something went wrong. Please try again.";
 
 export function useAuthForm<V extends Record<string, string>>({
   initial,
@@ -13,8 +11,8 @@ export function useAuthForm<V extends Record<string, string>>({
 }: {
   initial: V;
   validate: (values: V) => FieldErrors<Extract<keyof V, string>>;
-  /** Wired in T06. Without it a valid submit only shows a notice. */
-  onSubmit?: (values: V) => Promise<void> | void;
+  /** Returns a message to show when it fails, or nothing when it succeeded. */
+  onSubmit: (values: V) => Promise<string | undefined>;
 }) {
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<FieldErrors<Extract<keyof V, string>>>(
@@ -24,6 +22,8 @@ export function useAuthForm<V extends Record<string, string>>({
   const [submitted, setSubmitted] = useState(false);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string>();
+  // The state above updates on the next render; this blocks a second submit right away.
+  const busy = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   function setValue(name: Extract<keyof V, string>, value: string) {
@@ -34,7 +34,7 @@ export function useAuthForm<V extends Record<string, string>>({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
+    if (busy.current) return;
     setSubmitted(true);
     setNotice(undefined);
     const found = validate(values);
@@ -46,16 +46,15 @@ export function useAuthForm<V extends Record<string, string>>({
         ?.focus();
       return;
     }
-    if (!onSubmit) {
-      setNotice(NOT_CONNECTED);
-      return;
-    }
+    busy.current = true;
     setPending(true);
     try {
-      await onSubmit(values);
+      const message = await onSubmit(values);
+      if (message) setNotice(message);
     } catch {
-      setNotice(SUBMIT_FAILED);
+      setNotice(GENERIC_MESSAGE);
     } finally {
+      busy.current = false;
       setPending(false);
     }
   }

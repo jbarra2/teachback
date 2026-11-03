@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
+import { signUp } from "./auth-actions";
 import { useAuthForm } from "./use-auth-form";
 import {
   NAME_MAX,
@@ -11,15 +13,23 @@ import {
 } from "./validation";
 
 interface SignupFormProps {
-  onSubmit?: (values: SignupValues) => Promise<void> | void;
+  /** Tests pass a stand-in. Returns a message when sign-up or the sign-in after it fails. */
+  onSubmit?: (values: SignupValues) => Promise<string | undefined>;
 }
 
-export function SignupForm({ onSubmit }: SignupFormProps) {
+export function SignupForm({ onSubmit = signUp }: SignupFormProps) {
+  const router = useRouter();
   const { values, errors, pending, notice, formRef, setValue, handleSubmit } =
     useAuthForm<SignupValues>({
       initial: { name: "", email: "", password: "" },
       validate: validateSignup,
-      onSubmit,
+      onSubmit: async (submitted) => {
+        const message = await onSubmit(submitted);
+        if (message) return message;
+        router.replace("/courses");
+        router.refresh();
+        return undefined;
+      },
     });
 
   return (

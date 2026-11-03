@@ -1,7 +1,20 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GENERIC_MESSAGE } from "@/lib/api-client/errors";
+import { RATE_LIMITED } from "./auth-actions";
 import { LoginForm } from "./login-form";
-import { NOT_CONNECTED, SUBMIT_FAILED } from "./use-auth-form";
+
+const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+
+// The real action is tested in auth-actions.test.ts; here a stand-in keeps the network out.
+const ok = vi.fn(async () => undefined);
+
+beforeEach(() => {
+  router.replace.mockClear();
+  router.refresh.mockClear();
+  ok.mockClear();
+});
 
 const email = () => screen.getByLabelText("Email");
 const password = () => screen.getByLabelText("Password");
@@ -14,7 +27,7 @@ function type(input: HTMLElement, value: string) {
 
 describe("LoginForm", () => {
   it("labels every field and uses the right input types", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     expect(email()).toHaveAttribute("type", "email");
     expect(email()).toHaveAttribute("autocomplete", "email");
     expect(password()).toHaveAttribute("type", "password");
@@ -22,14 +35,14 @@ describe("LoginForm", () => {
   });
 
   it("shows no errors before the first submit", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     type(email(), "nope");
     expect(screen.queryByText(/valid email/)).not.toBeInTheDocument();
     expect(email()).not.toHaveAttribute("aria-invalid");
   });
 
   it("flags both fields on an empty submit and focuses the first", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     submit();
     expect(screen.getByText("Enter your email address.")).toBeInTheDocument();
     expect(screen.getByText("Enter your password.")).toBeInTheDocument();
@@ -38,7 +51,7 @@ describe("LoginForm", () => {
   });
 
   it("links each error to its field for screen readers", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     type(email(), "not-an-email");
     type(password(), "short");
     submit();
@@ -51,7 +64,7 @@ describe("LoginForm", () => {
   });
 
   it("focuses the password when only it is wrong", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     type(email(), "ada@example.com");
     type(password(), "1234567");
     submit();
@@ -59,7 +72,7 @@ describe("LoginForm", () => {
   });
 
   it("clears an error as soon as the field is fixed", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     submit();
     type(email(), "ada@example.com");
     expect(
@@ -69,18 +82,51 @@ describe("LoginForm", () => {
     expect(screen.getByText("Enter your password.")).toBeInTheDocument();
   });
 
-  it("says sign-in isn't connected when nothing handles the submit", () => {
-    render(<LoginForm />);
+  it("goes to /courses after signing in", async () => {
+    render(<LoginForm onSubmit={ok} />);
     type(email(), "ada@example.com");
     type(password(), "correct horse");
-    submit();
-    expect(screen.getByRole("status")).toHaveTextContent(NOT_CONNECTED);
+    await act(async () => submit());
+    expect(router.replace).toHaveBeenCalledWith("/courses");
+    expect(router.refresh).toHaveBeenCalled();
+  });
+
+  it("goes back to the page in ?next= after signing in", async () => {
+    render(<LoginForm next="/courses/c1/map?x=1" onSubmit={ok} />);
+    type(email(), "ada@example.com");
+    type(password(), "correct horse");
+    await act(async () => submit());
+    expect(router.replace).toHaveBeenCalledWith("/courses/c1/map?x=1");
+  });
+
+  it.each(["https://evil.example/", "//evil.example", "/\\evil.example"])(
+    "never follows ?next= off this site (%s)",
+    async (next) => {
+      render(<LoginForm next={next} onSubmit={ok} />);
+      type(email(), "ada@example.com");
+      type(password(), "correct horse");
+      await act(async () => submit());
+      expect(router.replace).toHaveBeenCalledWith("/courses");
+    },
+  );
+
+  it("shows the failure message and stays on the page", async () => {
+    const onSubmit = vi.fn(async () => RATE_LIMITED);
+    render(<LoginForm onSubmit={onSubmit} />);
+    type(email(), "ada@example.com");
+    type(password(), "correct horse");
+    await act(async () => submit());
+    expect(screen.getByRole("status")).toHaveTextContent(RATE_LIMITED);
+    expect(router.replace).not.toHaveBeenCalled();
   });
 
   it("passes valid values to onSubmit, once, while the button is busy", async () => {
     let finish = () => {};
     const onSubmit = vi.fn(
-      () => new Promise<void>((resolve) => (finish = resolve)),
+      () =>
+        new Promise<undefined>(
+          (resolve) => (finish = () => resolve(undefined)),
+        ),
     );
     render(<LoginForm onSubmit={onSubmit} />);
     type(email(), "ada@example.com");
@@ -102,11 +148,10 @@ describe("LoginForm", () => {
   });
 
   it("doesn't call onSubmit when a field is invalid", () => {
-    const onSubmit = vi.fn();
-    render(<LoginForm onSubmit={onSubmit} />);
+    render(<LoginForm onSubmit={ok} />);
     type(email(), "ada@example.com");
     submit();
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(ok).not.toHaveBeenCalled();
   });
 
   it("shows a generic message, not the cause, when onSubmit fails", async () => {
@@ -117,12 +162,12 @@ describe("LoginForm", () => {
     type(email(), "ada@example.com");
     type(password(), "correct horse");
     await act(async () => submit());
-    expect(screen.getByRole("status")).toHaveTextContent(SUBMIT_FAILED);
+    expect(screen.getByRole("status")).toHaveTextContent(GENERIC_MESSAGE);
     expect(screen.queryByText(/hunter2/)).not.toBeInTheDocument();
   });
 
   it("links to sign up", () => {
-    render(<LoginForm />);
+    render(<LoginForm onSubmit={ok} />);
     expect(
       screen.getByRole("link", { name: "Create an account" }),
     ).toHaveAttribute("href", "/signup");

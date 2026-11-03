@@ -83,6 +83,28 @@ describe("Input", () => {
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(input).not.toHaveAttribute("aria-describedby");
   });
+
+  it("counts characters up to the limit", () => {
+    function Counted() {
+      const [value, setValue] = useState("");
+      return (
+        <Input
+          id="name"
+          label="Name"
+          maxLength={5}
+          showCount
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }
+    render(<Counted />);
+    const input = screen.getByLabelText("Name");
+    expect(input).toHaveAttribute("maxlength", "5");
+    expect(screen.getByText("0 / 5")).toHaveClass("text-muted");
+    fireEvent.change(input, { target: { value: "hello" } });
+    expect(screen.getByText("5 / 5")).toHaveClass("text-danger");
+  });
 });
 
 describe("Textarea", () => {
