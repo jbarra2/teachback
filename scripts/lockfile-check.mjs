@@ -25,8 +25,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 
-/** Packages allowed to run preinstall/install/postinstall scripts (or node-gyp) on `npm ci`. */
-export const INSTALL_SCRIPTS_ALLOWED = ["esbuild", "fsevents", "unrs-resolver"];
+/**
+ * Packages allowed to run preinstall/install/postinstall scripts (or node-gyp) on `npm ci`.
+ * prisma's preinstall checks the Node version; @prisma/engines' postinstall downloads Prisma's
+ * schema engine (used by migrations) from binaries.prisma.sh.
+ */
+export const INSTALL_SCRIPTS_ALLOWED = [
+  "@prisma/engines",
+  "esbuild",
+  "fsevents",
+  "prisma",
+  "unrs-resolver",
+];
+
+/** The root scripts npm runs on install, word for word (PLAN §10). Any other is refused. */
+export const ROOT_INSTALL_SCRIPTS = {
+  postinstall: "prisma generate",
+  prepare: "node scripts/install-hooks.mjs",
+};
 
 /** Files that change where or how npm installs. None may exist in the repo. */
 export const NPM_CONFIG_FILES = [
@@ -168,11 +184,11 @@ export function manifestProblems(root) {
         );
     }
   if (count === 0) problems.push("package.json lists no dependencies");
-  // T02 adds `postinstall: prisma generate` (PLAN §10); allow it here when it lands.
   const lifecycle = Object.keys(pkg.scripts ?? {}).filter(isLifecycleScript);
+  const allowed = Object.keys(ROOT_INSTALL_SCRIPTS);
   if (
-    lifecycle.join() !== "prepare" ||
-    pkg.scripts.prepare !== "node scripts/install-hooks.mjs"
+    lifecycle.length !== allowed.length ||
+    !allowed.every((name) => pkg.scripts[name] === ROOT_INSTALL_SCRIPTS[name])
   )
     problems.push(
       `package.json install scripts: ${JSON.stringify(lifecycle.map((s) => `${s}=${pkg.scripts[s]}`))}`,

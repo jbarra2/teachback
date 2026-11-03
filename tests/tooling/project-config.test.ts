@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { load } from "js-yaml";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import nextConfig from "../../next.config";
 
 // Pins the settings the quality gate and the security decisions depend on, so a change to them
@@ -34,9 +34,15 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
     );
   });
 
-  it("test:ci checks the test inventory, then runs the tests with coverage", () => {
+  it("test:ci checks the test inventory, then runs every project with coverage", () => {
     expect(scripts["test:ci"]).toBe(
-      "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --coverage",
+      "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --project integration --coverage",
+    );
+  });
+
+  it("test:int checks the test inventory, then runs the integration project", () => {
+    expect(scripts["test:int"]).toBe(
+      "node scripts/check-test-inventory.mjs && vitest run --project integration",
     );
   });
 
@@ -52,16 +58,23 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
       "build",
       "check",
       "db:down",
+      "db:generate",
+      "db:migrate",
+      "db:seed",
+      "db:studio",
       "db:up",
+      "db:update",
       "dev",
       "format",
       "format:check",
       "lint",
+      "postinstall",
       "prepare",
       "setup",
       "start",
       "test",
       "test:ci",
+      "test:int",
       "typecheck",
       "verify",
     ]);
@@ -81,12 +94,63 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
     );
   });
 
+  // PLAN §10. db:update is what teammates and setup run: `migrate deploy` applies migrations and
+  // never resets a database. `migrate dev` (lead only) is the one that creates them.
+  it.each([
+    ["db:migrate", "prisma migrate dev"],
+    ["db:update", "prisma migrate deploy && prisma generate"],
+    ["db:seed", "prisma db seed"],
+    ["db:studio", "prisma studio"],
+    ["db:generate", "prisma generate"],
+    ["postinstall", "prisma generate"],
+  ])("%s runs `%s`", (name, command) => {
+    expect(scripts[name]).toBe(command);
+  });
+
   it.each(["dev", "start"])(
     "%s listens on this machine only (127.0.0.1)",
     (name) => {
       expect(scripts[name]).toMatch(/ -H 127\.0\.0\.1$/);
     },
   );
+});
+
+describe("database and auth packages (T02)", () => {
+  type Deps = Record<string, string>;
+  const pkg = JSON.parse(
+    readFileSync(path.join(root, "package.json"), "utf8"),
+  ) as { dependencies: Deps; devDependencies: Deps };
+
+  // Prisma's CLI, client and adapter must be the same release. An exact version also stops
+  // `npm install prisma` from taking npm's `latest`, which was a Prisma 8 release candidate.
+  it("pins prisma, @prisma/client and @prisma/adapter-pg to one exact 7.x release", () => {
+    const versions = [
+      pkg.devDependencies.prisma,
+      pkg.dependencies["@prisma/client"],
+      pkg.dependencies["@prisma/adapter-pg"],
+    ];
+    expect(versions[0]).toMatch(/^7\.\d+\.\d+$/);
+    expect(new Set(versions)).toEqual(new Set([versions[0]]));
+  });
+
+  it("keeps the Prisma CLI out of the production dependencies", () => {
+    expect(pkg.dependencies.prisma).toBeUndefined();
+    expect(pkg.devDependencies["@prisma/client"]).toBeUndefined();
+  });
+
+  // Auth upgrades are deliberate: a minor release has changed defaults before.
+  it("pins better-auth to an exact version", () => {
+    expect(pkg.dependencies["better-auth"]).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  // The CLI runs once from a scratch install (it brings ~125 packages); the auth-model drift test in
+  // src/lib/auth.test.ts says when to run it again. @better-auth/cli is deprecated.
+  it("doesn't install the Better Auth CLI", () => {
+    for (const name of ["auth", "@better-auth/cli"]) {
+      expect(pkg.dependencies[name]).toBeUndefined();
+      expect(pkg.devDependencies[name]).toBeUndefined();
+    }
+  });
 });
 
 describe("toolchain: one Node and npm for the team and CI", () => {
@@ -169,7 +233,44 @@ describe("toolchain: one Node and npm for the team and CI", () => {
   it("ci.yml is exactly the reviewed workflow", () => {
     expect(
       createHash("sha256").update(ci.replace(/\r\n/g, "\n")).digest("hex"),
-    ).toBe("7e7f721d4e3ee59c7a1a8b47f3e23bae535b3105c99b5fbbe8db5e4295fbc9d2");
+    ).toBe("a3c6088851384de30be3b3d58450400fc486dc2a7ea9a58746977debd07050c9");
+  });
+
+  // T02: a schema change can't land without its migration. Prisma rebuilds the migrations in the
+  // shadow database and compares them with the schema; --exit-code turns a difference into a
+  // failure. The shadow database is wiped, so it must never be the one the tests use.
+  it("the test job checks the migrations against the schema, in a scratch database, before the tests", () => {
+    const workflow = load(ci) as {
+      jobs: Record<
+        string,
+        {
+          steps?: {
+            name?: string;
+            run?: string;
+            env?: Record<string, string>;
+          }[];
+        }
+      >;
+    };
+    const steps = workflow.jobs.test?.steps ?? [];
+    const drift = steps.findIndex(
+      (s) => s.name === "Migrations match the schema",
+    );
+    expect(drift).toBeGreaterThan(-1);
+    expect(steps[drift]?.run).toBe(
+      "npx prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma --exit-code",
+    );
+    expect(steps[drift]?.env).toEqual({
+      SHADOW_DATABASE_URL:
+        "postgresql://teachback:teachback@127.0.0.1:5434/postgres",
+    });
+    // Both neighbours must exist, or a missing step would pass the order checks as -1.
+    const install = steps.findIndex((s) => s.run === "npm ci");
+    const tests = steps.findIndex((s) => s.run === "npm run test:ci");
+    expect(install).toBeGreaterThan(-1);
+    expect(tests).toBeGreaterThan(-1);
+    expect(install).toBeLessThan(drift);
+    expect(drift).toBeLessThan(tests);
   });
 
   // A tag can be moved to new code, which would then run with this workflow's token and secrets.
@@ -632,6 +733,34 @@ describe("team logins (.github/team.json, CODEOWNERS)", () => {
     }
   });
 
+  // prisma.config.ts runs on every `npm ci` (postinstall), and these hold the database URL, the
+  // session secret, withApi and the auth rules, so a teammate's change to any of them requests the lead.
+  it("CODEOWNERS requests the lead on the database and auth setup", () => {
+    const patterns = codeowners.map(([pattern]) => pattern);
+    for (const p of [
+      "/prisma/",
+      "/prisma.config.ts",
+      "/src/lib/db.ts",
+      "/src/lib/auth.ts",
+      "/src/lib/auth-secret.ts",
+      "/src/lib/auth-config.ts",
+      "/src/lib/auth-env.ts",
+      "/src/lib/log.ts",
+      "/src/lib/api/",
+      "/src/proxy.ts",
+      // PLAN §2: the lead's API routes. auth/ decides whether Better Auth is mounted raw.
+      "/src/app/api/auth/",
+      "/src/app/api/courses/",
+      "/src/app/api/health/",
+      "/src/app/api/openapi/",
+      "/src/app/api/docs/",
+      // T07: the test database guard and the setup that migrates and empties it.
+      "/tests/helpers/",
+      "/tests/integration/",
+    ])
+      expect(patterns).toContain(p);
+  });
+
   it("CODEOWNERS covers every AI and frontend path", () => {
     const patterns = codeowners.map(([pattern]) => pattern);
     for (const p of [...TRACK_PATHS.ai, ...TRACK_PATHS.frontend])
@@ -707,5 +836,62 @@ describe("redocly.yaml (npm run api:lint)", () => {
       ".redocly.lint-ignore.yaml",
     ])
       expect(readdirSync(root), other).not.toContain(other);
+  });
+});
+
+// The integration project's safety and the coverage thresholds (TESTING §4) live in the Vitest
+// config: changing them is a deliberate edit here, which needs the lead's review.
+describe("vitest.config.mts", () => {
+  type Project = { test: Record<string, unknown> };
+  let config: {
+    test: { projects: Project[]; coverage: Record<string, unknown> };
+  };
+  beforeAll(async () => {
+    config = (await import("../../vitest.config.mjs")).default as typeof config;
+  });
+
+  const project = (name: string) =>
+    config.test.projects.find((p) => p.test.name === name)?.test;
+
+  it("has exactly the unit, unit-dom and integration projects", () => {
+    expect(config.test.projects.map((p) => p.test.name)).toEqual([
+      "unit",
+      "unit-dom",
+      "integration",
+    ]);
+  });
+
+  it("runs integration tests one file at a time, after the guarded setup", () => {
+    expect(project("integration")).toMatchObject({
+      environment: "node",
+      include: ["src/**/*.int.test.ts", "tests/**/*.int.test.ts"],
+      globalSetup: ["./tests/integration/global-setup.ts"],
+      setupFiles: ["./tests/integration/setup.ts"],
+      fileParallelism: false,
+    });
+  });
+
+  it("keeps integration tests out of the unit projects", () => {
+    for (const name of ["unit", "unit-dom"])
+      expect(project(name)?.exclude).toContain("**/*.int.test.ts");
+  });
+
+  it("enforces TESTING §4's coverage thresholds, with src/lib/api at 100%", () => {
+    expect(config.test.coverage.thresholds).toEqual({
+      lines: 80,
+      branches: 75,
+      "src/lib/api/**": {
+        lines: 100,
+        branches: 100,
+        functions: 100,
+        statements: 100,
+      },
+      "src/lib/ingest/**": { lines: 90, branches: 85 },
+      "src/lib/mastery/**": { lines: 95, branches: 90 },
+      "src/lib/ai/verify-evidence.ts": { lines: 95, branches: 90 },
+    });
+    const testing = readFileSync(path.join(root, "docs/TESTING.md"), "utf8");
+    expect(testing).toMatch(/\| `src\/lib\/api\/\*\*`[^|]*\| 100% +\| 100%/);
+    expect(testing).toMatch(/\| `src\/lib\/ingest\/\*\*` +\| 90% +\| 85%/);
   });
 });

@@ -1,6 +1,5 @@
 // GET /api/openapi and GET /api/docs (PLAN §7): public, and only there when API_DOCS_ENABLED=true.
-// They're plain handlers until withApi() lands (T06), which then owns error responses and request ids.
-import { randomUUID } from "node:crypto";
+// Both are wrapped in withApi({ auth: false }), which owns their error responses and request ids.
 import type { ApiReferenceConfiguration } from "@scalar/nextjs-api-reference";
 
 /** Exactly "true" turns the docs on. Anything else, unset included, leaves them off. */
@@ -8,25 +7,9 @@ export function apiDocsEnabled(): boolean {
   return process.env.API_DOCS_ENABLED === "true";
 }
 
-/** 404 NOT_FOUND in the contract's error shape. */
-export function notFound(): Response {
-  return Response.json(
-    { error: { code: "NOT_FOUND", message: "Not found." } },
-    { status: 404 },
-  );
-}
-
-/** 500 INTERNAL in the contract's error shape: a generic message, never the cause. */
-export function internalError(): Response {
-  return Response.json(
-    {
-      error: {
-        code: "INTERNAL",
-        message: "Something went wrong. Please try again.",
-      },
-    },
-    { status: 500, headers: { "x-request-id": randomUUID() } },
-  );
+/** Scalar's page had no script tag to pin, so it can't be served with the integrity check. */
+export class ScalarTagError extends Error {
+  override name = "ScalarTagError";
 }
 
 /**

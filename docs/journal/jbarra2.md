@@ -149,3 +149,113 @@ CodeQL kept flagging code where I didn't expect it. My first fix still opened `.
 
 **What I learned:**
 Static analysis rules match code patterns, so the fix that satisfies them is a structural one (one handle, no second lookup of the path), and test files count too. Some guarantees only show on one platform: Windows ignores Unix file modes and even opens folders, so I ran the Linux-only tests and mutations in a throwaway Docker container as a normal user instead of trusting a skipped test.
+
+## T02 · Database: Docker Postgres + Prisma 7 + Better Auth models + schema (#2) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** The database layer the other tracks build on.
+
+- `prisma/schema.prisma`, with the Better Auth models and the PLAN §6 domain models, and the first migration.
+- The Prisma 7 client with the `pg` driver adapter in `src/lib/db.ts`, and `prisma.config.ts`.
+- A minimal Better Auth setup in `src/lib/auth.ts`, which refuses a missing, placeholder, public or short secret (`src/lib/auth-secret.ts`).
+- A CI step that fails when the migrations and the schema drift apart.
+- New lint bans on the Prisma helpers that put raw strings into SQL.
+- Tests that check the schema's columns, limits, cascades and enums against PLAN, `openapi.yaml` and Better Auth's own field list.
+
+**Skills & tools:** PostgreSQL, Docker Compose, Prisma 7 (driver adapters, `migrate diff`, shadow databases), Better Auth, ESLint selectors, GitHub Actions, npm install-script allowlists, Vitest, mutation testing, security review
+
+**Asked Claude for:** Build T02 from the issue, with the plan shown and the tests written before the code. Partway through, I had it add the CI drift check and close the lint gaps the security review found instead of deferring them, run the manual test steps for me, and fix security concerns as they come up while recording the rest for later.
+
+**Decided / dropped:**
+
+- Generated the auth models with a one-off run of Better Auth's CLI instead of adding it as a dependency. The old `@better-auth/cli` package is deprecated, so we used its replacement, `auth`.
+- Turned on the Prisma adapter's `transaction: true`. Without it, Better Auth's sign-up writes the user and the account separately. A live test left a user with no password when the second write failed, and none with the fix.
+- Refused `BETTER_AUTH_SECRETS` and Better Auth's public default secret. Outside production, Better Auth quietly falls back to that default, and the rotation list overrides the configured secret.
+- Ran the drift check only in CI. It needs a shadow database, and run locally it would write into a teammate's test database.
+- Turned off the Prisma CLI's update check (`CHECKPOINT_DISABLE=1`). Its background process contacted Prisma's servers and kept temp folders locked during tests.
+- Ran the live database checks by hand for now. T07 turns them into committed tests.
+
+**Hardest part, and how I solved it:**
+Making sure the schema can't drift silently from what Better Auth expects, from the migration, or from our API contract. The tests compare it to Better Auth's field list, to the enums in `openapi.yaml` and to the PLAN limits, and CI diffs the migrations against the schema. Breaking things on purpose showed a gap: Better Auth's own schema check can't tell whether a column is required, so making a user column optional went unnoticed. I fixed it with a test that generates the SQL from the schema and checks every required column, and after that all 87 mutations were caught.
+
+**What I learned:**
+A library's defaults can be unsafe for our app even when its docs look fine, so I read the installed source. That's how I found Better Auth's public fallback secret and the sign-up that isn't atomic without `transaction: true`. Prisma 7 also changed a lot from earlier versions: it no longer reads `.env` itself, the database URL moved to `prisma.config.ts`, and the client is generated into our own source folder.
+
+## T06 · Auth + secure API route wrapper (withApi) (#6) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** Real accounts and the wrapper every API route uses.
+
+- `withApi()` in `src/lib/api/` handles the cross-cutting checks:
+  - the session check, from the request's own headers;
+  - the cross-site Origin check;
+  - body limits, checked against Content-Length and again while reading;
+  - zod errors as 400s;
+  - generic 500s with a request id.
+- Better Auth is mounted at `/api/auth/*`, but only for the four endpoints the app uses:
+  - bodies are checked with strict schemas;
+  - tokens are stripped from responses;
+  - rate limiting is stored in a new `rateLimit` table.
+- Around them:
+  - `src/proxy.ts` sends signed-out visitors to `/login?next=…`;
+  - `src/lib/auth-client.ts` is for T15's forms;
+  - `runAfterResponse` handles background work;
+  - a small safe logger;
+  - per-request checks that refuse unsafe production settings.
+
+**Skills & tools:** Next.js 16 route handlers and proxy, Better Auth, Prisma 7 migrations, zod 4, Vitest with Better Auth's in-memory adapter, Docker PostgreSQL for live checks, threat modelling, mutation testing, security and test reviews
+
+**Asked Claude for:** Handle the open PRs first, then build T06 from a plan with a threat model and tests written first. Partway through, I chose to hide account existence at sign-up, and asked for security concerns to be fixed as they came up. After three review rounds, I moved on to `/test-task`, and asked for the open follow-ups to be posted where the next tasks will see them.
+
+**Decided / dropped:**
+
+- Mounted only sign-up, sign-in, sign-out and get-session. Every other Better Auth endpoint is a 404 before the library or the database sees the request.
+- Turned off sign-in at sign-up (`autoSignIn: false`), so sign-up answers the same for new and existing emails. Better Auth's stand-in answer still differed from a real one, so every successful sign-up now returns the same fixed body.
+- Rate limits read the client's IP only from a header the host sets. A client can send any `X-Forwarded-For`, so in production a request without that header is refused.
+- Checked production settings on each request, not at import, because CI builds with test values in production mode.
+- The proxy checks the session against the database, not just whether a cookie exists, so a stale cookie can't cause a redirect loop.
+- Kept the unit tests on the in-memory adapter and ran the PostgreSQL checks live. T07 commits those as integration tests.
+
+**Hardest part, and how I solved it:**
+The bugs that mattered were in places where my tests didn't match the real environment. The `next` redirect helper passed every attack case in the tests, but a review found that dot segments (`/.//evil.example`) parse as same-origin and still come out as `//evil.example`, another site. I fixed it by checking the path the helper returns, not just the URL it parsed. Sign-out with no body passed in tests but failed under Next, which gives every POST a body stream, so I made an empty body count as no body and proved it with a test over real HTTP.
+
+**What I learned:**
+Security defaults can change with the environment. Better Auth skips its own origin check under `NODE_ENV=test` and trusts a single `X-Forwarded-For` value, so I set those options explicitly and tested them. I also learned to distrust test fakes in exactly the place a check depends on: the in-memory adapter, hand-built requests, and mocked sessions each hid a gap that only a live run against PostgreSQL and real HTTP showed.
+
+## T07 · Test infrastructure: integration DB, auth helpers, contract validation (#7) · Nov 2, 2026
+
+<!-- needs-review -->
+
+**What I built:** The setup that lets every route be tested against the real database, sessions and API contract.
+
+- A Vitest `integration` project:
+  - loads `.env.test` over the shell and `.env`;
+  - migrates the test database once and empties every table between files;
+  - runs files one at a time.
+  - It refuses any database that isn't a local `*_test` one, before migrating, before each reset, and again by asking the connection which database it reached.
+- Helpers in `tests/helpers/`: `createUser`, `as(user).call`, `asAnonymous`, `fromOrigin`, `crossSite`, and `expectMatchesOpenApi`, which checks status, headers, media type and body against `openapi.yaml` with Ajv.
+- A route coverage test: every operation has a handler, every handler is documented and wrapped in `withApi`, and each one requires a session exactly where the spec does.
+- `test:int`, and `test:ci` with the TESTING §4 coverage thresholds (`src/lib/api` held at 100%).
+- Integration tests for the T02 and T06 checks that had only been run by hand: column caps, foreign keys, unique indexes, ids, atomic sign-up, cascade delete, the auth flows and the database rate limiter.
+
+**Skills & tools:** Vitest projects and global setup, Prisma 7 `migrate deploy`, PostgreSQL system catalogs, Ajv (JSON Schema 2020-12), Better Auth, Docker PostgreSQL, mutation testing, security and test reviews
+
+**Asked Claude for:** After merging T06, I chose to do T07 before the board sync (T40), approved `ajv` and `ajv-formats`, and kept `src/lib/api` at 100% coverage. After three review rounds I moved on to `/test-task`, then had Claude run the manual checks and handle the open items itself.
+
+**Decided / dropped:**
+
+- Emptied tables with `deleteMany` in one transaction rather than `TRUNCATE`: same result, and no raw SQL built from table names.
+- Made the guard accept only URLs every client reads the same way: a loopback host with a port, a plain name ending in `_test`, and no query. `pg` takes the host, port and database from query parameters over the URL's own, and the adapter ignores `?schema=` that the migrate command honours.
+- The global setup reads `.env.test` without writing it into `process.env`. Loading it there leaked the test secret into the unit tests' workers and broke T06's production-mode tests.
+- The `withApi` mark now records whether a handler requires a session, so route coverage can compare it with each operation's `security`.
+- Dropped the CHECK constraint, and then the trigger, that made the account insert fail in the atomic sign-up test. A spy on Better Auth's account write does the same with no database objects, so a killed run can't leave anything behind.
+- Skipped a fourth review round: the last Medium was in a test's own logic, and breaking the code proved the fix.
+- Let any task remove its own operations from the route coverage test's `NOT_BUILT_YET` list (PLAN §2, CLAUDE.md rule 2). Otherwise every AI-track route (T12, T17, T22) would need an edit to a lead-owned file to pass.
+
+**Hardest part, and how I solved it:**
+The hardest bugs were tests that passed without checking what they claimed. Route coverage never compared a route that needs a session, because none exists yet. The concurrent rate-limit test passed whether or not the two requests actually raced. The duplicate sign-up test compared two duplicates, because the table is emptied per file, not per test. I fixed each by forcing the condition: auth checked with handlers built for the test, both inserts held until they collide, a fresh address. Then I broke the code on purpose to watch each test fail.
+
+**What I learned:**
+A safety check only works if it reads its input the same way as the thing it protects. My guard parsed the database URL one way while `pg` and Prisma's migrate engine handled query parameters, encoded paths and missing ports differently, so I narrowed the guard to URLs they all read the same and checked the live connection too. I also learned that an error nobody can read is only half a fix: Vitest crashed while printing the guard's refusal, so I made the setup's errors printable and checked them in a live run.
