@@ -16,19 +16,20 @@ Free stack: **Vercel Hobby** (app) + **Neon Free** (production Postgres only; de
 3. **Build command:** add `"build:deploy": "prisma migrate deploy && next build"` to package.json, then set Settings → Build → Build Command to `npm run build:deploy`.
 4. **Environment variables** (Production):
 
-   | Name                                                                              | Value                                                                                            |
-   | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-   | `DATABASE_URL`                                                                    | Neon **pooled** string                                                                           |
-   | `DIRECT_URL`                                                                      | Neon **direct** string                                                                           |
-   | `BETTER_AUTH_SECRET`                                                              | a new random secret (never reuse a dev one)                                                      |
-   | `BETTER_AUTH_URL`                                                                 | `https://<project>.vercel.app`                                                                   |
-   | `AI_PROVIDER`                                                                     | `anthropic`                                                                                      |
-   | `ANTHROPIC_API_KEY`                                                               | a separate key just for production (if your Claude Console account offers spend limits, set one) |
-   | `AI_MODEL_FAST` / `AI_MODEL_SMART`                                                | same as `.env.example`                                                                           |
-   | `MAX_UPLOAD_MB` / `MAX_NOTE_CHARS`                                                | `4` / `200000`                                                                                   |
-   | `RATE_LIMIT_AI_PER_MIN` / `RATE_LIMIT_AI_PER_DAY` / `RATE_LIMIT_UPLOADS_PER_HOUR` | `10` / `100` / `5` (stricter than dev)                                                           |
-   | `RATE_LIMIT_AI_GLOBAL_PER_DAY`                                                    | `500` (caps total AI calls across all accounts)                                                  |
-   | `API_DOCS_ENABLED`                                                                | `false` (turn on only for demos)                                                                 |
+   | Name                                                                              | Value                                                                                                                                                                   |
+   | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `DATABASE_URL`                                                                    | Neon **pooled** string                                                                                                                                                  |
+   | `DIRECT_URL`                                                                      | Neon **direct** string                                                                                                                                                  |
+   | `BETTER_AUTH_SECRET`                                                              | a new random secret (never reuse a dev one)                                                                                                                             |
+   | `BETTER_AUTH_URL`                                                                 | `https://<project>.vercel.app`                                                                                                                                          |
+   | `TRUSTED_IP_HEADER`                                                               | `x-real-ip`: a header Vercel's proxy overwrites with the client's IP (check Vercel's request headers docs before going live). Never a header the client can send itself |
+   | `AI_PROVIDER`                                                                     | `anthropic`                                                                                                                                                             |
+   | `ANTHROPIC_API_KEY`                                                               | a separate key just for production (if your Claude Console account offers spend limits, set one)                                                                        |
+   | `AI_MODEL_FAST` / `AI_MODEL_SMART`                                                | same as `.env.example`                                                                                                                                                  |
+   | `MAX_UPLOAD_MB` / `MAX_NOTE_CHARS`                                                | `4` / `200000`                                                                                                                                                          |
+   | `RATE_LIMIT_AI_PER_MIN` / `RATE_LIMIT_AI_PER_DAY` / `RATE_LIMIT_UPLOADS_PER_HOUR` | `10` / `100` / `5` (stricter than dev)                                                                                                                                  |
+   | `RATE_LIMIT_AI_GLOBAL_PER_DAY`                                                    | `500` (caps total AI calls across all accounts)                                                                                                                         |
+   | `API_DOCS_ENABLED`                                                                | `false` (turn on only for demos)                                                                                                                                        |
 
 5. **Previews:** disable preview deployments for this project (Settings → Git), so preview builds never touch the production DB.
 6. **Deploy**, then on the live URL:

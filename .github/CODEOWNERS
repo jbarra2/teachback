@@ -2,6 +2,7 @@
 # the lead's own PRs would deadlock.
 /openapi/                   @jbarra2
 /prisma/                    @jbarra2
+/prisma.config.ts           @jbarra2
 /src/lib/schemas/           @jbarra2
 /src/lib/api/               @jbarra2
 /src/proxy.ts               @jbarra2
@@ -28,6 +29,16 @@
 /package-lock.json          @jbarra2
 /src/lib/services/          @jbarra2
 /src/lib/auth.ts            @jbarra2
+/src/lib/auth-secret.ts     @jbarra2
+/src/lib/auth-config.ts     @jbarra2
+/src/lib/auth-env.ts        @jbarra2
+/src/lib/log.ts             @jbarra2
+/src/app/api/auth/          @jbarra2
+/src/app/api/courses/       @jbarra2
+/src/app/api/health/        @jbarra2
+/src/app/api/openapi/       @jbarra2
+/src/app/api/docs/          @jbarra2
+/src/lib/db.ts              @jbarra2
 /src/lib/auth-client.ts     @jbarra2
 /src/lib/ai/                @hsheik20
 /src/lib/ingest/            @hsheik20

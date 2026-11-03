@@ -1,7 +1,9 @@
 import type * as scalarNext from "@scalar/nextjs-api-reference";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SCALAR_BUNDLE_INTEGRITY, SCALAR_BUNDLE_URL } from "@/lib/api/api-docs";
 import * as route from "./route";
+
+const request = () => new Request("http://localhost:3000/api/docs");
 
 // The real Scalar page, unless a test swaps in other HTML to see what the route does with it.
 const scalar = vi.hoisted(() => ({ page: null as string | null }));
@@ -21,6 +23,12 @@ vi.mock("@scalar/nextjs-api-reference", async (importOriginal) => {
   };
 });
 
+beforeEach(() => {
+  // A developer's shell may set these; withApi would then answer every request with a 500.
+  vi.stubEnv("BETTER_AUTH_TELEMETRY", "");
+  vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "");
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
   scalar.page = null;
@@ -28,7 +36,7 @@ afterEach(() => {
 
 async function render() {
   vi.stubEnv("API_DOCS_ENABLED", "true");
-  const res = await route.GET();
+  const res = await route.GET(request());
   return { res, html: await res.text() };
 }
 
@@ -52,7 +60,7 @@ describe("GET /api/docs", () => {
     "is 404 NOT_FOUND when API_DOCS_ENABLED=%j",
     async (value) => {
       vi.stubEnv("API_DOCS_ENABLED", value);
-      const res = await route.GET();
+      const res = await route.GET(request());
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
         error: { code: "NOT_FOUND", message: "Not found." },
@@ -63,7 +71,7 @@ describe("GET /api/docs", () => {
   it("reads the flag on every request", async () => {
     expect((await render()).res.status).toBe(200);
     vi.stubEnv("API_DOCS_ENABLED", "false");
-    expect((await route.GET()).status).toBe(404);
+    expect((await route.GET(request())).status).toBe(404);
   });
 
   it("renders Scalar's reference of /api/openapi as HTML", async () => {
@@ -130,7 +138,7 @@ describe("GET /api/docs", () => {
     // A fresh import, so values the modules read when they load are the stubbed ones.
     vi.resetModules();
     const fresh = await import("./route");
-    const html = await (await fresh.GET()).text();
+    const html = await (await fresh.GET(request())).text();
     expect(html).toContain("TeachBack API");
     expect(html).not.toMatch(/secret-marker/);
   });
