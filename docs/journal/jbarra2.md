@@ -269,7 +269,7 @@ A safety check only works if it reads its input the same way as the thing it pro
 - Only open PRs from team members, on this repo and not from a fork, move cards. Anyone can open a PR on a public repo that says "Closes #12".
 - Ready needs a track label, so an outsider's issue waits in Backlog until the team triages it.
 - Dropped the GitHub Actions workflow and the machine account it needed. Teammates can merge to `main` without an approval, and any change merged there could read a secret stored in CI, so a CI token had to come from a separate account that can reach only this board. I didn't want a second account, so the sync runs on my laptop instead, with a `project`-only token that never leaves it. The cost is that the board only updates while my laptop is on.
-- The schedule runs a copy of `main`'s script, never my working tree, so a half-edited script or a teammate's branch I'm reviewing never runs with the token.
+- The schedule runs a copy of a commit on `main`, never my working tree, so it never runs a half-edited script or a teammate's branch I'm reviewing. The copy step names the ref in full, because git resolves a short `origin/main` to a tag of that name first.
 - Pinned the Status option IDs, not just their names. The board's Auto-close workflow closes any issue moved to Done, so a renamed or swapped option must never let the sync write Done onto open issues.
 - Too many linked PRs no longer stops the run. Otherwise an outsider could attach enough fork PRs to one issue to stop the sync for the whole board. The card is placed from the PRs that fit, with a warning, and too many blockers or labels skips only that card.
 - A blocker the token can't see never counts as closed, so its card stays in Backlog.

@@ -59,10 +59,13 @@ Don't drag cards by hand: the next sync puts them back. Only PRs from the team, 
 
 **Running the board sync (lead).** No GitHub workflow holds a board token: teammates can merge to `main` without an approval, and any change merged there could read a secret stored in CI. The lead runs it instead:
 
-1. Create a classic token on your own account with only the `project` scope, and give it an expiry. It can't touch any repo, but it can write to every project your account can, so it never leaves your computer.
-2. Preview with `node scripts/board-sync.mjs --dry-run`, with the token in both `GITHUB_TOKEN` and `PROJECT_TOKEN`. It prints the moves and writes nothing.
-3. Schedule `node scripts/board-sync.mjs` about every 15 minutes, with the same two variables. Run it from a copy of `main`'s `scripts/board-sync.mjs` and `.github/team.json` (`git show origin/main:<path>`), in the same folder layout, never from your working tree. Then a half-edited script, or a teammate's branch you checked out to review, never runs with the token. When a change to the script merges, review it and copy it again.
-4. Store the token encrypted (for example with Windows DPAPI or the macOS keychain), not in a plain file or your shell profile. The script removes the token from everything it prints and exits non-zero when a run fails, so its log is safe to keep.
+1. Create a classic token on your own account with only the `project` scope, and give it an expiry. It can't read or change any repo's code, but it can write to every project your account can, and through this board's Auto-close workflow it can close this repo's issues. Keep it on your computer.
+2. Store it encrypted (for example with Windows DPAPI or the macOS keychain), not in a plain file or your shell profile.
+3. Copy `scripts/board-sync.mjs` and `.github/team.json` out of git, from a commit on `main`, into a folder of their own with the same layout. Name the ref in full, `refs/remotes/origin/main`: git resolves a short `origin/main` to a tag of that name first, and anyone who can push can push tags. The schedule runs only this copy, never your working tree, so it never runs a half-edited script or a branch you checked out to review. When a change to the script merges, read its diff and copy again.
+4. Preview with the copy: `node <folder>/scripts/board-sync.mjs --dry-run`, with the token in both `GITHUB_TOKEN` and `PROJECT_TOKEN`. It prints the moves and writes nothing.
+5. Schedule the same command without `--dry-run`, about every 15 minutes, one run at a time. The script removes the token from everything it prints and exits non-zero when a run fails, so keep its output in a log and check it now and then.
+
+Code you run yourself, such as tests or git hooks on a checked-out branch, runs as you and could read the token, just as it can use your `gh` login.
 
 **Your review checklist (step 6):**
 
