@@ -255,27 +255,27 @@ A safety check only works if it reads its input the same way as the thing it pro
   - places each card: closed → Done; an open team PR → In review; a branch, draft PR or `in-progress` label → In progress; a track label with every blocker closed → Ready; otherwise Backlog;
   - writes only the cards that changed, and `--dry-run` prints the moves without writing;
   - stops before any write if the board's project, Status field or option IDs differ from the pinned ones.
-- `.github/workflows/board.yml`: runs on issue and PR events, every 15 minutes (blockers change without an event), and by hand. It never checks out PR code, reads the repo with read-only permissions, takes the board token from a `board` environment that only `main` can use, and pins its actions to commits.
-- Tests: a fake GraphQL server that accepts only the exact queries checked against GitHub's API, fixtures for forks, drafts, deleted authors and hidden blockers, the command spawned for real, and pins for the workflow in `project-config.test.ts`.
-- CONTRIBUTING: the column rules and the one-time setup for the machine account, its token and the environment.
+- It runs on my laptop about every 15 minutes, from a copy of `main`'s script, with a token that has only the `project` scope and stays encrypted on my machine. I first built a GitHub Actions workflow for it, then dropped it before merging (below).
+- Tests: a fake GraphQL server that accepts only the exact queries checked against GitHub's API, fixtures for forks, drafts, deleted authors and hidden blockers, the command spawned for real, and a config test that keeps `ci.yml` the only workflow.
+- CONTRIBUTING: the column rules and how the lead runs the sync.
 
-**Skills & tools:** GitHub Projects v2 GraphQL API, GitHub Actions (`pull_request_target`, environments, actions pinned to commits), Node's built-in `fetch`, Vitest, mutation testing, threat modelling, security and test reviews
+**Skills & tools:** GitHub Projects v2 GraphQL API, GitHub Actions security (`pull_request_target`, environments, secrets), Windows Task Scheduler and DPAPI, Node's built-in `fetch`, Vitest, mutation testing, threat modelling, security and test reviews
 
-**Asked Claude for:** I asked for the board sync after T07, approved the plan, and after the second review round chose a separate machine account for the board token and a track-label rule for Ready. Before `/test-task` I paused T40 to review two teammates' PRs first, then finished with `/test-task` and `/security-review`.
+**Asked Claude for:** I asked for the board sync after T07, approved the plan, and after the second review round chose a separate machine account for the board token and a track-label rule for Ready. Before `/test-task` I paused T40 to review two teammates' PRs first, then finished with `/test-task` and `/security-review`. Before merging I asked whether the sync could work without a dedicated bot account, and chose to run it from my laptop instead of GitHub Actions.
 
 **Decided / dropped:**
 
-- A plain Node script with no packages and no `npm install`: the job holds a write token, so nothing runs in it except the repo's own script and GitHub's two pinned actions.
+- A plain Node script with no packages: everything that runs with the board token is one file I can read in full.
 - Only open PRs from team members, on this repo and not from a fork, move cards. Anyone can open a PR on a public repo that says "Closes #12".
 - Ready needs a track label, so an outsider's issue waits in Backlog until the team triages it.
-- The token comes from a machine account that can write to this board only. Teammates can merge to `main` without an approval, and code on `main` runs with the token, so a token from my own account would have reached every project I have.
+- Dropped the GitHub Actions workflow and the machine account it needed. Teammates can merge to `main` without an approval, and any change merged there could read a secret stored in CI, so a CI token had to come from a separate account that can reach only this board. I didn't want a second account, so the sync runs on my laptop instead, with a `project`-only token that never leaves it. The cost is that the board only updates while my laptop is on.
+- The schedule runs a copy of `main`'s script, never my working tree, so a half-edited script or a teammate's branch I'm reviewing never runs with the token.
 - Pinned the Status option IDs, not just their names. The board's Auto-close workflow closes any issue moved to Done, so a renamed or swapped option must never let the sync write Done onto open issues.
 - Too many linked PRs no longer stops the run. Otherwise an outsider could attach enough fork PRs to one issue to stop the sync for the whole board. The card is placed from the PRs that fit, with a warning, and too many blockers or labels skips only that card.
 - A blocker the token can't see never counts as closed, so its card stays in Backlog.
-- Dropped a round 3 suggestion to skip the workflow for fork PRs: no outsider input reaches those runs, and it would need a `github.event` expression, which the workflow tests forbid.
 
 **Hardest part, and how I solved it:**
 The hardest bugs were tests that passed while the real sync would have done nothing. The second test review found that my fake GitHub server answered every field whatever the query asked for, so dropping a card's `type` from the query passed every test, while the real sync would have skipped every card. The third found the same shape again: GitHub matches the repository name without regard to case, so a miscased name in the script would still read the issues but never match their PRs. I made the fake accept only the exact query text I had checked against GitHub's API and check the owner, project and field on every request, compared repository names without case, and broke each protection on purpose to watch the tests fail.
 
 **What I learned:**
-`pull_request_target` runs the workflow and code from `main`, even for a fork's PR, so it's safe only when the job never checks out or runs the PR's code and no event text reaches a shell. I also learned that a secret is exposed to everyone who can change the code that runs with it. The environment rule kept the token to `main`, but anyone who can merge to `main` can still reach it, so I limited what the token can do instead, with an account that can reach only this board.
+`pull_request_target` runs the workflow and code from `main`, even for a fork's PR, so it's safe only when the job never checks out or runs the PR's code and no event text reaches a shell. The bigger lesson was that a secret is exposed to everyone who can change the code that runs with it: the environment rule kept the token to `main`, but anyone who can merge to `main` could still read it. Rather than add a bot account to limit what a leak could do, I kept the token off GitHub entirely and run the sync from a pinned copy on my own machine.

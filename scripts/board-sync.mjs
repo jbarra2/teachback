@@ -1,15 +1,16 @@
 /**
  * Keeps the project board's Status column in step with the repo (T40), so nobody moves cards by
- * hand. Run by .github/workflows/board.yml on issue and PR events and every 15 minutes:
+ * hand. The lead's machine runs it about every 15 minutes, from a copy of main's version, never a
+ * working tree (CONTRIBUTING, "Running the board sync"). No workflow holds a board token: any
+ * change merged to main could read a secret stored in CI.
  *
  *   node scripts/board-sync.mjs [--dry-run]
  *
  * GITHUB_TOKEN reads the repo's issues. PROJECT_TOKEN reads the board and moves cards: a classic
- * token with only the `project` scope, from a machine account that is a Writer on this board only
- * (CONTRIBUTING, "Setting up the board sync"). Such a token can write to every project its
- * account can, so the script checks that it's looking at this board's Status field, with the
- * options it knows, before it writes anything. `--dry-run` prints the moves and writes nothing.
- * Node built-ins only.
+ * token with only the `project` scope (the lead passes the same token as both). Such a token can
+ * write to every project its account can, so the script checks that it's looking at this board's
+ * Status field, with the options it knows, before it writes anything. `--dry-run` prints the
+ * moves and writes nothing. Node built-ins only.
  */
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -305,10 +306,10 @@ export async function run({
       continue;
     }
     onBoard.add(entry.facts.number);
-    // GitHub shows `::warning::` lines as warnings on the run.
-    if (entry.warning) log(`::warning::${entry.warning}`);
+    // Warnings start their own line, so they stand out in the runner's log.
+    if (entry.warning) log(`Warning: ${entry.warning}`);
     if (entry.skip) {
-      log(`::warning::${entry.skip}`);
+      log(`Warning: ${entry.skip}`);
       continue;
     }
     const from = card.fieldValueByName?.name ?? null;
@@ -384,7 +385,7 @@ export async function main({
     );
     return 1;
   }
-  // An environment secret that isn't set reaches the step as an empty string.
+  // A variable that is set but empty counts as missing.
   for (const name of ["GITHUB_TOKEN", "PROJECT_TOKEN"])
     if (!env[name]) {
       error(`${name} isn't set, so the board can't be synced.`);

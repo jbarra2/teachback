@@ -650,7 +650,7 @@ describe("run against the GitHub API", () => {
       await expect(done).resolves.toMatchObject({ moved: 3 });
       expect(written()).not.toContain("item-2");
       expect(out.lines.join("\n")).toMatch(
-        /::warning::#2 has more (labels|blockers) than one page/,
+        /^Warning: #2 has more (labels|blockers) than one page/m,
       );
     },
   );
@@ -778,7 +778,7 @@ describe("run against the GitHub API", () => {
       item: "item-4",
       option: optionId("In review"),
     });
-    expect(out.lines.join("\n")).toMatch(/::warning::#4 .*PRs/);
+    expect(out.lines.join("\n")).toMatch(/^Warning: #4 .*PRs/m);
   });
 
   // The token can write to every project the user owns, so it touches only this board's Status.
@@ -941,7 +941,7 @@ describe("main (the command)", () => {
     ]);
   });
 
-  // An environment secret that isn't set reaches the step as an empty string.
+  // A variable that is set but empty counts as missing.
   it.each([
     ["GITHUB_TOKEN", "missing", { PROJECT_TOKEN }],
     ["PROJECT_TOKEN", "missing", { GITHUB_TOKEN: REPO_TOKEN }],
@@ -994,8 +994,8 @@ describe("main (the command)", () => {
   });
 });
 
-// The workflow runs the file itself: it must act as a command and report failure in its exit
-// code, or a broken sync would show as a green run. Neither case reaches the network.
+// The lead's scheduled task runs the file itself: it must act as a command and report failure in
+// its exit code, or a broken sync would look like a successful run. Neither case reaches the network.
 describe("node scripts/board-sync.mjs", () => {
   const script = path.join(root, "scripts/board-sync.mjs");
   // No way out: Node's fetch goes through a proxy on a closed port, so a regression that let the

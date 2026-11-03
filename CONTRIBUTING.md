@@ -47,7 +47,7 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 | 8. Fix      | `/fix-ci` or `/address-review`                                     | Fixes red CI or applies review comments                                                                                     | Confirm                                         |
 | 9. Merge    | Squash-merge when `ci-ok` + CodeQL are green (see "Reviews" below) | The issue closes automatically                                                                                              | `/clear`, then step 1                           |
 
-**The project board moves its own cards** (`.github/workflows/board.yml`, T40). It updates when an issue is opened, closed, reopened or relabelled, and when a PR is opened, closed, reopened, edited, or switched between draft and ready. Anything else, such as a new branch or a change to an issue's "blocked by" list, waits for the next scheduled run, about every 15 minutes (GitHub can run it late):
+**The project board moves its own cards** (`scripts/board-sync.mjs`, T40). The lead's computer runs the sync about every 15 minutes while it's on, so a card can take that long to move, or longer while the lead is offline. GitHub's own board rules still move a card to Done as soon as its issue closes. Each run places every card:
 
 - **Done:** the issue is closed.
 - **In review:** your PR is open and not a draft, or the issue has the `in-review` label (`/finish-task` adds it; remove it if you turn the PR back into a draft).
@@ -57,13 +57,12 @@ Type these in the Claude Code panel, or in a terminal after `claude`. If a comma
 
 Don't drag cards by hand: the next sync puts them back. Only PRs from the team, on this repo, move cards.
 
-**Setting up the board sync (lead, once).** The workflow writes to the board with a token from a separate machine account. A leaked token then reaches only this board, and through it can close this repo's issues, since the board's Auto-close workflow closes any issue moved to Done. Anyone who can merge to `main` can reach the token, and a token from the lead's own account would reach every project the lead has. Until the secret exists, every Board run fails.
+**Running the board sync (lead).** No GitHub workflow holds a board token: teammates can merge to `main` without an approval, and any change merged there could read a secret stored in CI. The lead runs it instead:
 
-1. Create a GitHub account just for this, turn on 2FA, and add it as a **Writer** on the project board only (the board's settings → Manage access).
-2. Signed in as that account, create a classic token with only the `project` scope, and give it an expiry.
-3. In the repo's settings → Environments, create `board`. If the workflow is already on `main`, a Board run has probably created it, with no rules and no secret: open it instead. Under deployment branches, choose "Selected branches and tags" and add a **branch** rule `main`. Don't add a tag rule, and don't choose "Protected branches only".
-4. Only then add the token to that environment as the secret `PROJECT_TOKEN`. Check that the repo has no repository secret with that name.
-5. Run the **Board** workflow by hand (Actions → Board → Run workflow) and check the board. To preview first, run `node scripts/board-sync.mjs --dry-run` locally with `GITHUB_TOKEN` and `PROJECT_TOKEN` set: it prints the moves and writes nothing.
+1. Create a classic token on your own account with only the `project` scope, and give it an expiry. It can't touch any repo, but it can write to every project your account can, so it never leaves your computer.
+2. Preview with `node scripts/board-sync.mjs --dry-run`, with the token in both `GITHUB_TOKEN` and `PROJECT_TOKEN`. It prints the moves and writes nothing.
+3. Schedule `node scripts/board-sync.mjs` about every 15 minutes, with the same two variables. Run it from a copy of `main`'s `scripts/board-sync.mjs` and `.github/team.json` (`git show origin/main:<path>`), in the same folder layout, never from your working tree. Then a half-edited script, or a teammate's branch you checked out to review, never runs with the token. When a change to the script merges, review it and copy it again.
+4. Store the token encrypted (for example with Windows DPAPI or the macOS keychain), not in a plain file or your shell profile. The script removes the token from everything it prints and exits non-zero when a run fails, so its log is safe to keep.
 
 **Your review checklist (step 6):**
 

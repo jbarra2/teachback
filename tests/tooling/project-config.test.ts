@@ -302,13 +302,13 @@ describe("toolchain: one Node and npm for the team and CI", () => {
     }
   });
 
-  it("ci.yml and board.yml (T40) are the only workflows, and nothing in ci.yml may fail quietly", () => {
+  it("ci.yml is the only workflow, and nothing in it may fail quietly", () => {
     // GitHub runs every .yml/.yaml file there; anything else (a Mac's .DS_Store) is ignored.
     expect(
       readdirSync(path.join(root, ".github/workflows")).filter((f) =>
         /\.ya?ml$/.test(f),
       ),
-    ).toEqual(["board.yml", "ci.yml"]);
+    ).toEqual(["ci.yml"]);
     expect(ci).not.toMatch(/continue-on-error/);
   });
 
@@ -893,112 +893,5 @@ describe("vitest.config.mts", () => {
     const testing = readFileSync(path.join(root, "docs/TESTING.md"), "utf8");
     expect(testing).toMatch(/\| `src\/lib\/api\/\*\*`[^|]*\| 100% +\| 100%/);
     expect(testing).toMatch(/\| `src\/lib\/ingest\/\*\*` +\| 90% +\| 85%/);
-  });
-});
-
-// T40: the board sync. It runs on pull_request_target, which GitHub runs from main's copy of this
-// file with the repo's secrets, for PRs from forks too. That is safe only while the workflow never
-// checks out or runs a PR's code and no event value reaches a shell, so the whole file is pinned.
-describe(".github/workflows/board.yml (the board sync, T40)", () => {
-  const file = readFileSync(
-    path.join(root, ".github/workflows/board.yml"),
-    "utf8",
-  ).replace(/\r\n/g, "\n");
-  const workflow = load(file) as Record<string, unknown>;
-
-  it("runs on issue and PR events, every 15 minutes and by hand, one run at a time, read-only", () => {
-    expect(workflow.on).toEqual({
-      issues: {
-        types: ["opened", "closed", "reopened", "labeled", "unlabeled"],
-      },
-      pull_request_target: {
-        types: [
-          "opened",
-          "closed",
-          "reopened",
-          "ready_for_review",
-          "converted_to_draft",
-          "edited",
-        ],
-      },
-      schedule: [{ cron: "*/15 * * * *" }],
-      workflow_dispatch: null,
-    });
-    expect(workflow.concurrency).toEqual({
-      group: "board-sync",
-      "cancel-in-progress": false,
-    });
-    // The built-in token only reads; the board is written with PROJECT_TOKEN.
-    expect(workflow.permissions).toEqual({
-      contents: "read",
-      issues: "read",
-      "pull-requests": "read",
-    });
-    expect(Object.keys(workflow).sort()).toEqual(
-      ["concurrency", "jobs", "name", "on", "permissions"].sort(),
-    );
-  });
-
-  it("has one job: main's code, Node 24, the script, the project token from the board environment", () => {
-    expect(workflow.jobs).toEqual({
-      sync: {
-        name: "sync",
-        "runs-on": "ubuntu-latest",
-        "timeout-minutes": 5,
-        // An environment secret, usable only from main (the environment's branch rule).
-        environment: "board",
-        steps: [
-          // No `ref:`: the base branch, never the PR's head.
-          {
-            uses: "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
-            with: { "persist-credentials": false },
-          },
-          // No package cache: a cache restored into this job could hand it someone else's code.
-          {
-            uses: "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444",
-            with: { "node-version": "24", "package-manager-cache": false },
-          },
-          {
-            run: "node scripts/board-sync.mjs",
-            env: {
-              GITHUB_TOKEN: "${{ github.token }}",
-              PROJECT_TOKEN: "${{ secrets.PROJECT_TOKEN }}",
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  // This job holds a token that reaches all the owner's projects, so even GitHub's own actions are
-  // pinned to a commit (a tag can move), with the release in a comment for the reader.
-  it("pins every action to a full commit SHA, with its release in a comment", () => {
-    const uses = [...file.matchAll(/^\s+- uses: (\S+)(.*)$/gm)];
-    expect(uses.map((m) => m[1].split("@")[0])).toEqual([
-      "actions/checkout",
-      "actions/setup-node",
-    ]);
-    for (const [, ref, comment] of uses) {
-      expect(ref).toMatch(/@[0-9a-f]{40}$/);
-      expect(comment).toMatch(/^ # v\d+\.\d+\.\d+$/);
-    }
-  });
-
-  // An event value (a PR title, a branch name) in an expression is attacker-controlled text.
-  it("uses no expression but the two tokens", () => {
-    expect(
-      [...file.matchAll(/\$\{\{[^}]*\}\}/g)].map((m) => m[0]).sort(),
-    ).toEqual(["${{ github.token }}", "${{ secrets.PROJECT_TOKEN }}"].sort());
-    expect(file).not.toMatch(
-      /github\.event|continue-on-error|npm (ci|install)/,
-    );
-  });
-
-  // Catches what the parsed checks can't see (a comment that says something else, key order).
-  // Change board.yml and this hash together, in a PR the lead reviews.
-  it("board.yml is exactly the reviewed workflow", () => {
-    expect(createHash("sha256").update(file).digest("hex")).toBe(
-      "fff7e52b3f25a8413efc3b3396cfcd8019c6efef6900d55c537751b37f47c517",
-    );
   });
 });
