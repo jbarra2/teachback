@@ -115,6 +115,19 @@ describe("statusFor (first matching rule wins)", () => {
     ).toBe("Ready");
   });
 
+  // GitHub logins are unique without regard to case, and team.json is typed by hand.
+  it("matches team logins without regard to case", () => {
+    expect(
+      statusFor(facts({ pullRequests: [pr({ author: "AI-Login" })] }), TEAM),
+    ).toBe("In review");
+    expect(
+      statusFor(
+        facts({ pullRequests: [pr({ author: "ai-login" })] }),
+        new Set(["AI-LOGIN"]),
+      ),
+    ).toBe("In review");
+  });
+
   it("takes the track labels from the team's roles in .github/team.json", () => {
     const roles = Object.keys(
       JSON.parse(readFileSync(path.join(root, ".github/team.json"), "utf8")),

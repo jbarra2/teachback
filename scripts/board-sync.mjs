@@ -34,9 +34,9 @@ export const BOARD = Object.freeze({
     "In review",
     "Done",
   ]),
-  /** @type {Readonly<Record<string, string>>} */
   /** The track labels a task issue carries (the roles in .github/team.json). */
   tracks: Object.freeze(["lead", "ai", "frontend"]),
+  /** @type {Readonly<Record<string, string>>} */
   optionIds: Object.freeze({
     Backlog: "f75ad846",
     Ready: "61e4505c",
@@ -80,14 +80,15 @@ export function statusFor(issue, team) {
   // The only way to Done. The board's "Auto-close issue" workflow closes whatever is moved there.
   if (issue.state === "CLOSED") return "Done";
   // Anyone can open a PR on a public repo and write "Closes #12" in it, so only open PRs from the
-  // team, on this repo and not from a fork, count.
+  // team, on this repo and not from a fork, count. Logins are unique without regard to case.
+  const members = new Set([...team].map((login) => login.toLowerCase()));
   const prs = issue.pullRequests.filter(
     (pr) =>
       pr.state === "OPEN" &&
       isThisRepo(pr.repository) &&
       !pr.isCrossRepository &&
       pr.author !== null &&
-      team.has(pr.author),
+      members.has(pr.author.toLowerCase()),
   );
   const labels = new Set(issue.labels);
   if (prs.some((pr) => !pr.isDraft) || labels.has("in-review"))
