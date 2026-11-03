@@ -8,6 +8,7 @@
 /src/proxy.ts               @jbarra2
 /tests/helpers/             @jbarra2
 /tests/contract/            @jbarra2
+/tests/integration/         @jbarra2
 /tests/e2e/                 @hsheik20
 /scripts/                   @jbarra2
 /.githooks/                 @jbarra2

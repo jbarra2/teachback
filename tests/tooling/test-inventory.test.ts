@@ -144,17 +144,36 @@ describe("check-test-inventory.mjs", () => {
     );
   });
 
-  it("requires test:ci to run integration tests once they exist", () => {
-    const dir = project({ extraFiles: ["src/lib/e.int.test.ts"] });
-    const unit = inventory(dir, "test");
-    expect(unit.status, unit.stdout + unit.stderr).toBe(0);
+  // A test:ci that dropped --project integration (as it was before T07 added the project).
+  const UNIT_ONLY_CI =
+    "node scripts/check-test-inventory.mjs && vitest run --project unit --project unit-dom --coverage";
+
+  it("collects integration tests in test:ci and test:int, but not in test", () => {
+    const dir = project({
+      extraFiles: ["src/lib/e.int.test.ts"],
+      scripts: { "test:int": realScripts["test:int"] },
+    });
+    for (const script of ["test", "test:ci", "test:int"]) {
+      const res = inventory(dir, script);
+      expect(res.status, `${script}: ${res.stdout}${res.stderr}`).toBe(0);
+    }
+  });
+
+  it("fails a test:ci that doesn't run the integration project", () => {
+    const dir = project({
+      extraFiles: ["src/lib/e.int.test.ts"],
+      scripts: { "test:ci": UNIT_ONLY_CI },
+    });
     const ci = inventory(dir, "test:ci");
     expect(ci.status, ci.stdout + ci.stderr).toBe(1);
     expect(ci.stderr).toContain("src/lib/e.int.test.ts is never run");
   });
 
   it("also accepts the script name as an argument", () => {
-    const dir = project({ extraFiles: ["src/lib/e.int.test.ts"] });
+    const dir = project({
+      extraFiles: ["src/lib/e.int.test.ts"],
+      scripts: { "test:ci": UNIT_ONLY_CI },
+    });
     const ci = inventory(dir, "test:ci", { asArgument: true });
     expect(ci.status, ci.stdout + ci.stderr).toBe(1);
     expect(ci.stderr).toContain("src/lib/e.int.test.ts is never run");
