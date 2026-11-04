@@ -307,3 +307,31 @@ Proving the concept order was right. A mutation that sorted by the stored name i
 
 **What I learned:**
 A mutation no test catches can mean the test environment hides the difference, not just that a test is missing. Here the database collation made two sort orders look the same. I also learned to put a header like `Cache-Control` in the one wrapper every response passes through, so a later route can't forget it.
+
+## T21 · Map + next-concept endpoints (#21) · Nov 4, 2026
+
+**What I built:** The two progress endpoints behind the concept map and targeted practice.
+
+- `GET /api/courses/{id}/map` returns every concept in my course as a node with my mastery state and score, and the edges between them. An edge counts only when both ends are in the course, and a concept pointing at itself is dropped.
+- `GET /api/courses/{id}/next-concept` picks what to practise next by PLAN §9: PRACTICE before REVIEW before MASTERED, lowest score, then unseen or seen longest ago. It skips the concept of my latest answer in the course unless it's the only one, and returns `null` for a course with no concepts.
+- `src/lib/services/map.ts` holds both queries, scoped to the signed-in user, plus a pure `mapEdges` that sorts the edges.
+- `tests/integration/progress.int.test.ts` covers the security matrix and the PLAN §9 order on the test database, and `src/lib/services/map.test.ts` unit-tests the edge sorting.
+
+**Skills & tools:** Next.js 16 route handlers, Prisma 7 nested relation filters, Vitest integration and unit tests on a Docker PostgreSQL test database, OpenAPI response validation, mutation testing, security and test reviews, a live HTTP check
+
+**Asked Claude for:** Build T21 from a plan with tests first, then run the manual checks and handle the open items. I chose to keep the `withApi` user-typing fix out of T21 and do it in its own PR afterwards, and to start the flaky-test fix only once T21 is committed.
+
+**Decided / dropped:**
+
+- Kept the `user!` typing cleanup out of this PR (one issue, one PR); it's now T43 (#65), after T21 merges.
+- Counted a LOW-confidence answer as my latest answer for the skip: it doesn't change mastery, but it's still the concept I just answered.
+- Broke ties between answers saved at the same moment by id, so the pick never flips between requests.
+- Skipped the latest-answer lookup when a course has one concept, since the skip can't apply.
+- Dropped a real-database test of edge order after it turned out the database couldn't be made to return edges out of order; a unit test of `mapEdges` replaced it.
+- Moved the three load-flaky tooling tests to their own issue, T42 (#64), instead of changing their timeouts here.
+
+**Hardest part, and how I solved it:**
+Proving the edge sort was the code's own. A mutation that sorted edges by `from` only passed every test, even after I stored one concept's edges in reverse order. Prisma loads them with `fromId IN (...)`, and the unique `(fromId, toId)` index hands them back already sorted by `to`. I moved the sorting into a pure `mapEdges` function and unit-tested it with rows in the wrong order, and the mutation was then caught.
+
+**What I learned:**
+A query plan can quietly do a job the code claims to do, so a test that relies on insertion order may never see the difference. When the database can't be made to disagree, testing the logic as a pure function is the honest fix. I also learned that a leak test needs the other user's row to be the only one: when both users had a mastery row, dropping the user filter passed or failed depending on which row came first.
