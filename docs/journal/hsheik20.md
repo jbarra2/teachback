@@ -24,3 +24,31 @@ Coordinating the shared pieces. Adding `task` to the `generateJson` signature an
 
 **What I learned:**
 Structured outputs get you the right JSON shape but don't enforce limits like `max`, so you still need a zod check, and a validation failure is one of the few errors worth retrying. Retries should depend on the error type: a timeout or a rate limit just gets worse if you retry it. And when a lockfile diff fills up with changes nobody asked for, check everyone's npm version before anything else.
+
+## T10 · Text extraction + upload validation (#10) · Nov 1, 2026
+
+**What I built:** `extractText(data, filename)` in `src/lib/ingest/extract-text.ts`, which turns an uploaded `.pdf`, `.txt` or `.md` file into clean note text or rejects it with a typed `IngestError` (400 / 413 / 422 / 429). It checks the size before parsing, requires the content to match the extension, parses PDFs in a separate child process that is killed at 15 seconds or when a watchdog sees it pass a 512 MB memory threshold (with a 100-page cap and at most two parses at once), and normalizes the text. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results.
+
+**Skills & tools:** TypeScript, unpdf (PDF.js), Node `child_process` and `worker_threads`, Unicode normalization, `TextDecoder`, zlib, zod, Vitest (module mocks, fake timers, spies, coverage), Claude Code
+
+**Asked Claude for:** A plan with tests for T10, then the implementation once I picked rejecting PDFs over 100 pages instead of truncating them. I also asked that the error clearly explain the 100-page limit without exposing any file contents or parser details. After the lead's review, I asked for the fixes with proof that the worker really terminates, a heartbeat test that isn't sensitive to CI timing, and replacement of malformed surrogates. When a security review of that fix found new problems, I paused T10 until the lead approved moving parsing into a child process, then asked for that with a 20 ms memory watchdog, as he suggested. Last, I asked for a security review against his six requirements and a check of whether the parent could see the child exit before reading its answer.
+
+**Decided / dropped:**
+
+- PDFs over 100 pages are rejected with 413 instead of keeping only the first 100 pages, because silent truncation would let a student think their whole document was processed.
+- Error messages are fixed per reason, not per code, so a 413 can say which limit was hit (file size, characters or pages). Parser errors are always replaced with a generic message, so file text never leaks through them.
+- `normalizeNoteText` is exported so notes pasted as text (T12) go through the same normalization and limits as uploaded files.
+- Dropped a nested `.gitattributes` for the hostile fixtures, because a repo tooling test only allows the root one. The same tests only allow images and PDFs to be binary (secret scanning skips binary files), so the renamed-binary sample is committed as a `.png` and the test uploads it as `.txt`.
+- Dropped my first in-process time cap (`Promise.race` against a timer) after the lead's review showed a small compressed PDF could keep PDF.js busy without yielding, so the timer never fired.
+- Then dropped the worker-thread fix too: a security review found that a 1 KB PDF could make V8 abort the whole server from inside the worker, and that PDF.js could allocate gigabytes outside the worker's heap limit. With the lead's approval, PDFs are now parsed in a child process with a 256 MB heap, a watchdog that checks its memory every 20 ms and kills it past a 512 MB threshold, a 15-second kill, none of the app's secrets, and at most two parses at once (then 429).
+- Changed `next.config.ts` and its pinned test in `tests/tooling/project-config.test.ts`, both under exceptions the lead approved, so the child's files ship with the build.
+- The final security review found that when the server can't start the child (out of memory or file descriptors), the upload waited forever and kept one of the two parse slots, so two failures blocked every PDF upload until a restart. That case now returns 429 `PDF_BUSY` instead of 422, because the server is temporarily short, not the PDF unreadable, and regression tests check that the slot is freed.
+- The parent now waits for the child's `close` event instead of `exit`, because Node doesn't guarantee it has read the child's answer when it reports the exit. I couldn't reproduce the race locally, so a regression test delivers the answer after the exit.
+- After Jonathan's final review, I added an independent deadline to the child's memory watchdog so PDF parsing can't continue indefinitely if the server crashes. I tested this by killing a stand-in server during parsing and confirming the child terminated on its own.
+- Also from review: the note limit counts characters (code points) after trimming, the same way the request schemas count them, and unpaired surrogates are replaced with U+FFFD so PostgreSQL never refuses the text. I kept `unpdf@2.1.0` because the lead had already checked the package.
+
+**Hardest part, and how I solved it:**
+Containing a hostile PDF. My first time cap used `Promise.race`, which can't stop CPU-bound work on the same thread, so I moved parsing into a worker thread and proved it with a heartbeat test. A security review then showed a worker isn't enough: a 1 KB PDF made V8 abort the entire process, and a compressed stream could allocate gigabytes outside the worker's heap limit. The fix was a child process with a memory watchdog thread, and the tests build each attack in memory and check that the server survives, including that the child really died from V8's abort.
+
+**What I learned:**
+A timer only fires when the event loop is free, and a worker thread still shares its process, so a crash or memory blow-up inside it can take the server down; real isolation needs a separate process. With file uploads, the extension alone means nothing: the content has to be checked too (magic bytes, valid encoding), and size limits go before any parsing. When I tested the extractor with my own Operating Systems lecture notes, the PDF was rejected because its pages were images rather than selectable text. That showed me the difference between text extraction and OCR, and OCR is a possible future improvement.
