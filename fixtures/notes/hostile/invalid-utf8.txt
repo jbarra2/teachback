@@ -1,0 +1,1 @@
+Lecture 3 notes: caf√© is fine, but this byte is not: √( end

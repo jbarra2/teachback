@@ -1,0 +1,17 @@
+CSE 143 - Lecture 9: Recursion
+
+A recursive method is a method that calls itself on a smaller version of the same problem.
+
+Every recursive method needs two parts:
+1. Base case: the simplest input, answered directly without another call.
+2. Recursive case: reduce the problem, call the method on the smaller input, and combine the result.
+
+Example: factorial
+	factorial(0) = 1
+	factorial(n) = n * factorial(n - 1)
+
+If the base case is missing or never reached, the calls never stop and the program throws a StackOverflowError. Each call gets its own stack frame with its own copies of the parameters and local variables.
+
+Tracing tip: write each call on its own line, indent nested calls, and fill in return values from the bottom up.
+
+Recursion vs. iteration: any recursive method can be rewritten with a loop and an explicit stack. Recursion is clearer for problems that are naturally self-similar, such as tree traversal, directory listing, and backtracking (for example, solving a maze).

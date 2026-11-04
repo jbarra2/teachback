@@ -279,3 +279,85 @@ The hardest bugs were tests that passed while the real sync would have done noth
 
 **What I learned:**
 `pull_request_target` runs the workflow and code from `main`, even for a fork's PR, so it's safe only when the job never checks out or runs the PR's code and no event text reaches a shell. The bigger lesson was that a secret is exposed to everyone who can change the code that runs with it: the environment rule kept the token to `main`, but anyone who can merge to `main` could still read it. Rather than add a bot account to limit what a leak could do, I kept the token off GitHub entirely and run the sync from a pinned copy on my own machine.
+
+## T13 · Courses API (#13) · Nov 3, 2026
+
+**What I built:** The four course endpoints: list and create courses, open a course with its documents, and list a course's concepts with my mastery state.
+
+- `src/lib/services/courses.ts` holds the queries. Every one is scoped to the signed-in user and lists the fields it returns, so another user's course is a 404, the same answer as a course that doesn't exist.
+- `src/lib/services/document-status.ts` decides what a document's status reads as. Anything still queued or processing 10 minutes after upload shows as FAILED, so nothing spins forever. T12 will reuse it for `GET /api/documents/{id}`.
+- `withApi()` now marks every API response `Cache-Control: private, no-store`, errors included.
+- `tests/integration/courses.int.test.ts` covers the security matrix for all four routes and checks every response against `openapi.yaml`.
+
+**Skills & tools:** Next.js 16 route handlers, Prisma 7, zod 4, Vitest integration tests on a Docker PostgreSQL test database, OpenAPI response validation, mutation testing, security and test reviews
+
+**Asked Claude for:** Build T13 from a plan with tests first, and keep the work safe across an internet outage partway through. I chose to put the cache header in `withApi` for every route, and to include the PLAN §8 evidence-quote rule I'd promised in a review of T18.
+
+**Decided / dropped:**
+
+- Set `Cache-Control` once in `withApi` rather than in each route, so routes without a session check, such as Better Auth's get-session, are covered too.
+- Shared one status helper between the course view and the document endpoint, so both report a stuck upload the same way.
+- Sorted concepts by their normalized name key, so case never decides the order, and broke ties in course and document lists by id, so the order is stable.
+- Put the integration tests in `tests/integration/`, because lint bans the database client anywhere under `src/app/`.
+- Moved `listCourseConcepts` out of T21's not-built list, since the issue gives it to T13.
+- Dropped a `now` parameter on the service and a concept tie-break after a review showed neither was used.
+
+**Hardest part, and how I solved it:**
+Proving the concept order was right. A mutation that sorted by the stored name instead of the normalized key passed every test, because the test database's English collation already ignores case, so both orders matched. I added a concept whose key sorts differently from its name, so only the key order passes, and the mutation was then caught.
+
+**What I learned:**
+A mutation no test catches can mean the test environment hides the difference, not just that a test is missing. Here the database collation made two sort orders look the same. I also learned to put a header like `Cache-Control` in the one wrapper every response passes through, so a later route can't forget it.
+
+## T21 · Map + next-concept endpoints (#21) · Nov 4, 2026
+
+**What I built:** The two progress endpoints behind the concept map and targeted practice.
+
+- `GET /api/courses/{id}/map` returns every concept in my course as a node with my mastery state and score, and the edges between them. An edge counts only when both ends are in the course, and a concept pointing at itself is dropped.
+- `GET /api/courses/{id}/next-concept` picks what to practise next by PLAN §9: PRACTICE before REVIEW before MASTERED, lowest score, then unseen or seen longest ago. It skips the concept of my latest answer in the course unless it's the only one, and returns `null` for a course with no concepts.
+- `src/lib/services/map.ts` holds both queries, scoped to the signed-in user, plus a pure `mapEdges` that sorts the edges.
+- `tests/integration/progress.int.test.ts` covers the security matrix and the PLAN §9 order on the test database, and `src/lib/services/map.test.ts` unit-tests the edge sorting.
+
+**Skills & tools:** Next.js 16 route handlers, Prisma 7 nested relation filters, Vitest integration and unit tests on a Docker PostgreSQL test database, OpenAPI response validation, mutation testing, security and test reviews, a live HTTP check
+
+**Asked Claude for:** Build T21 from a plan with tests first, then run the manual checks and handle the open items. I chose to keep the `withApi` user-typing fix out of T21 and do it in its own PR afterwards, and to start the flaky-test fix only once T21 is committed.
+
+**Decided / dropped:**
+
+- Kept the `user!` typing cleanup out of this PR (one issue, one PR); it's now T43 (#65), after T21 merges.
+- Counted a LOW-confidence answer as my latest answer for the skip: it doesn't change mastery, but it's still the concept I just answered.
+- Broke ties between answers saved at the same moment by id, so the pick never flips between requests.
+- Skipped the latest-answer lookup when a course has one concept, since the skip can't apply.
+- Dropped a real-database test of edge order after it turned out the database couldn't be made to return edges out of order; a unit test of `mapEdges` replaced it.
+- Moved the three load-flaky tooling tests to their own issue, T42 (#64), instead of changing their timeouts here.
+
+**Hardest part, and how I solved it:**
+Proving the edge sort was the code's own. A mutation that sorted edges by `from` only passed every test, even after I stored one concept's edges in reverse order. Prisma loads them with `fromId IN (...)`, and the unique `(fromId, toId)` index hands them back already sorted by `to`. I moved the sorting into a pure `mapEdges` function and unit-tested it with rows in the wrong order, and the mutation was then caught.
+
+**What I learned:**
+A query plan can quietly do a job the code claims to do, so a test that relies on insertion order may never see the difference. When the database can't be made to disagree, testing the logic as a pure function is the honest fix. I also learned that a leak test needs the other user's row to be the only one: when both users had a mastery row, dropping the user filter passed or failed depending on which row came first.
+
+## T42 · Stabilize load-sensitive tooling tests (#64) · Nov 4, 2026
+
+**What I built:** More time-limit headroom for three tests that timed out when the machine was busy, while passing alone.
+
+- `tests/tooling/entry-points.test.ts`: 60 s instead of the 5 s default for the check that parses every source file, like most other tooling tests.
+- `tests/tooling/database.test.ts`: the tests that start Node or the Prisma CLI get 90 s (170 s for the one that starts two), and each child process now has its own 80 s limit, so a hung child fails its test instead of stalling the whole run. Two "stops on an unreadable .env" tests now also check the child wasn't killed.
+- `src/lib/auth.test.ts`: 60 s instead of 30 s for its cold imports.
+
+**Skills & tools:** Vitest timeout options (file, suite and test level), Node `spawnSync`, stress runs with concurrent test processes, mutation testing, code and security reviews
+
+**Asked Claude for:** Handle the open items left by T21, which became this issue; I chose to start it only after T21 was committed, then said go and asked Claude to run the manual checks.
+
+**Decided / dropped:**
+
+- Set the longer limits only where they're needed (one file, one suite, one test), not as a global default, so a real hang elsewhere still fails fast.
+- Gave each Prisma child process its own timeout, because `spawnSync` blocks the test worker and Vitest's timeout can't interrupt it.
+- Raised entry-points to 60 s instead of 30 s after the review pointed out that the issue asked for the same limit as the other tooling tests.
+- Dropped the after-change stress run: the before-change runs never failed, so a passing run afterwards would prove nothing.
+- Left the uncapped Prisma call in a shared test helper for a later tooling PR, since it's outside this issue's three tests.
+
+**Hardest part, and how I solved it:**
+I couldn't reproduce the failures: two and then three concurrent test runs all passed. So I measured each test's duration under load to see its margin, and proved with a throwaway test that a suite-level timeout overrides the file's. The review then found that my new child-process timeout could make two guard tests pass by accident: a killed child returns a null status, which passes `not.toBe(0)`. I confirmed it with a child that printed the expected error and then hung, added `expect(res.error).toBeUndefined()`, and a mutation run showed the test now fails.
+
+**What I learned:**
+`spawnSync` blocks the worker, so a test-runner timeout can only report an overrun after the fact; the child needs its own timeout. But adding a timeout for safety can change what a test accepts: an assertion that only checks "didn't succeed" also passes for a process the test itself killed. Now I check what a killed process returns before relying on that kind of assertion.

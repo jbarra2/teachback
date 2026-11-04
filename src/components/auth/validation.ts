@@ -1,10 +1,13 @@
 // Client-side checks for the auth forms. The server (Better Auth, T06) checks again; these only
-// give fast, friendly feedback.
+// give fast, friendly feedback. The limits are the server's, and each is counted the way the
+// server counts it (src/lib/schemas/auth.ts), so the forms can't drift from the API.
+import { charCount } from "@/components/ui/char-count";
+import { LIMITS } from "@/lib/schemas";
 
-export const PASSWORD_MIN = 8;
-/** Better Auth's default maximum. */
-export const PASSWORD_MAX = 128;
-export const NAME_MAX = 100;
+export const PASSWORD_MIN = LIMITS.passwordMin;
+export const PASSWORD_MAX = LIMITS.passwordMax;
+export const NAME_MAX = LIMITS.userName;
+export const EMAIL_MAX = LIMITS.email;
 
 export type FieldErrors<K extends string> = Partial<Record<K, string>>;
 
@@ -14,11 +17,14 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function emailError(email: string): string | undefined {
   const value = email.trim();
   if (!value) return "Enter your email address.";
+  // Trimmed, then UTF-16 units, like the server's zod check.
+  if (value.length > EMAIL_MAX) return `Use at most ${EMAIL_MAX} characters.`;
   if (!EMAIL.test(value))
     return "Enter a valid email address, like name@example.com.";
   return undefined;
 }
 
+// Never trimmed, and counted in UTF-16 units, as Better Auth counts.
 export function passwordError(password: string): string | undefined {
   if (!password) return "Enter your password.";
   if (password.length < PASSWORD_MIN)
@@ -31,7 +37,8 @@ export function passwordError(password: string): string | undefined {
 export function nameError(name: string): string | undefined {
   const value = name.trim();
   if (!value) return "Enter your name.";
-  if (value.length > NAME_MAX) return `Use at most ${NAME_MAX} characters.`;
+  // Trimmed code points, like the server's text().
+  if (charCount(value) > NAME_MAX) return `Use at most ${NAME_MAX} characters.`;
   return undefined;
 }
 

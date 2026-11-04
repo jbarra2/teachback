@@ -27,6 +27,12 @@ import { repoRoot as root, tempDirs } from "../helpers/temp-dirs";
 // No test here connects to a database (TESTING §4); T07's integration tests do.
 // The prisma.config.ts tests each start a Node process, which can pass the 5 s default when busy.
 vi.setConfig({ testTimeout: 30_000 });
+// Those processes take about 4 s alone but have taken over 35 s on a loaded machine, so their block
+// gets more room. spawnSync blocks the worker, so Vitest's timeout can't stop a hung child; each
+// spawn's own timeout can, so a hang fails its test instead of stalling the whole run. A test that
+// spawns more than once gets room for each spawn.
+const SPAWN_TIMEOUT_MS = 80_000;
+const SPAWN_TEST_TIMEOUT_MS = SPAWN_TIMEOUT_MS + 10_000;
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 const dirs = tempDirs("teachback-database-");
 afterAll(() => dirs.removeAll());
@@ -125,7 +131,7 @@ describe("env files (PLAN §10)", () => {
   );
 });
 
-describe("prisma.config.ts", () => {
+describe("prisma.config.ts", { timeout: SPAWN_TEST_TIMEOUT_MS }, () => {
   const configUrl = pathToFileURL(path.join(root, "prisma.config.ts")).href;
 
   /** Loads the config the way the Prisma CLI does: from a folder that may hold a .env. */
@@ -155,6 +161,7 @@ describe("prisma.config.ts", () => {
         cwd: dir,
         encoding: "utf8",
         env: { ...clean, ...env, CONFIG_URL: configUrl },
+        timeout: SPAWN_TIMEOUT_MS,
       },
     );
     const lastLine = res.stdout.trim().split("\n").pop();
@@ -175,21 +182,27 @@ describe("prisma.config.ts", () => {
   });
 
   // CI's drift check sets SHADOW_DATABASE_URL; nothing else does, and Prisma wipes that database.
-  it("takes the shadow database only from SHADOW_DATABASE_URL", () => {
-    const set = loadConfig("DIRECT_URL=postgresql://direct.invalid/app\n", {
-      SHADOW_DATABASE_URL: "postgresql://shadow.invalid/scratch",
-    });
-    expect(set.config?.datasource?.shadowDatabaseUrl).toBe(
-      "postgresql://shadow.invalid/scratch",
-    );
-    // Both other URLs present, in .env and the shell, so a fallback to either would show.
-    const unset = loadConfig(
-      "DIRECT_URL=postgresql://direct.invalid/app\nDATABASE_URL=postgresql://pooled.invalid/app\n",
-      { DATABASE_URL: "postgresql://pooled-env.invalid/app" },
-    );
-    expect(unset.status).toBe(0);
-    expect(unset.config?.datasource?.shadowDatabaseUrl).toBeUndefined();
-  });
+  it(
+    "takes the shadow database only from SHADOW_DATABASE_URL",
+    {
+      timeout: 2 * SPAWN_TIMEOUT_MS + 10_000,
+    },
+    () => {
+      const set = loadConfig("DIRECT_URL=postgresql://direct.invalid/app\n", {
+        SHADOW_DATABASE_URL: "postgresql://shadow.invalid/scratch",
+      });
+      expect(set.config?.datasource?.shadowDatabaseUrl).toBe(
+        "postgresql://shadow.invalid/scratch",
+      );
+      // Both other URLs present, in .env and the shell, so a fallback to either would show.
+      const unset = loadConfig(
+        "DIRECT_URL=postgresql://direct.invalid/app\nDATABASE_URL=postgresql://pooled.invalid/app\n",
+        { DATABASE_URL: "postgresql://pooled-env.invalid/app" },
+      );
+      expect(unset.status).toBe(0);
+      expect(unset.config?.datasource?.shadowDatabaseUrl).toBeUndefined();
+    },
+  );
 
   it("lets a variable that's already set win over .env", () => {
     const { config } = loadConfig(
@@ -229,8 +242,11 @@ describe("prisma.config.ts", () => {
         cwd: dir,
         encoding: "utf8",
         env: { ...envWithoutDatabases(), CONFIG_URL: configUrl },
+        timeout: SPAWN_TIMEOUT_MS,
       },
     );
+    // It stopped by itself: a child killed at the timeout also has a non-zero status.
+    expect(res.error).toBeUndefined();
     expect(res.status).not.toBe(0);
     // Windows reports a folder as ERR_INVALID_ARG_TYPE, Linux and macOS as EISDIR.
     expect(res.stderr).toMatch(/ERR_INVALID_ARG_TYPE|EISDIR/);
@@ -251,8 +267,15 @@ describe("prisma.config.ts", () => {
         "--schema",
         path.join(root, "prisma/schema.prisma"),
       ],
-      { cwd: dir, encoding: "utf8", env: envWithoutDatabases() },
+      {
+        cwd: dir,
+        encoding: "utf8",
+        env: envWithoutDatabases(),
+        timeout: SPAWN_TIMEOUT_MS,
+      },
     );
+    // It stopped by itself: a child killed at the timeout also has a non-zero status.
+    expect(res.error).toBeUndefined();
     expect(res.status).not.toBe(0);
     expect(`${res.stdout}${res.stderr}`).toMatch(
       /ERR_INVALID_ARG_TYPE|EISDIR|\.env/,

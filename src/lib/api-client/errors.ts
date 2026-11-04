@@ -85,7 +85,14 @@ export function networkError(cause?: unknown): ApiError {
   });
 }
 
-/** A request cancelled with an AbortSignal (e.g. on unmount). Not an error to show. */
+/**
+ * A request cancelled with an AbortSignal (e.g. on unmount). Not an error to show. Checked by name
+ * only: in jsdom (and across realms) an abort error isn't an instance of the global DOMException.
+ */
 export function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
 }

@@ -807,9 +807,13 @@ describe("next.config.ts", () => {
     expect(nextConfig.cacheComponents).not.toBe(true);
   });
 
-  it("ships openapi.yaml with GET /api/openapi, which reads it at runtime", () => {
+  it("ships only openapi.yaml with GET /api/openapi, and only the PDF child script and unpdf with POST /api/documents, which load them from disk", () => {
     expect(nextConfig.outputFileTracingIncludes).toEqual({
       "/api/openapi": ["./openapi/openapi.yaml"],
+      "/api/documents": [
+        "./src/lib/ingest/pdf-child.ts",
+        "./node_modules/unpdf/**",
+      ],
     });
   });
 });

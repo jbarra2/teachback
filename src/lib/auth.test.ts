@@ -10,8 +10,9 @@ import {
 // auth.ts builds Better Auth (and the db client) when it's first imported, so each test stubs the
 // environment and imports it afresh. Nothing here may connect, so the database URL points at a
 // closed port: an accidental query fails loudly instead of reaching a developer's database. A cold
-// import of Better Auth and the Prisma client can pass Vitest's 5 s default on a busy machine.
-vi.setConfig({ testTimeout: 30_000 });
+// import of Better Auth and the Prisma client can pass Vitest's 5 s default on a busy machine, and
+// once took over 30 s while a full verify ran alongside other work.
+vi.setConfig({ testTimeout: 60_000 });
 
 const GOOD_SECRET = "a-random-test-secret-that-is-long-enough-0123";
 const NO_DATABASE = "postgresql://nobody:none@127.0.0.1:9/none";
