@@ -6,6 +6,7 @@ export const INGEST_ERROR_STATUS = {
   UNSUPPORTED_TYPE: 400,
   PAYLOAD_TOO_LARGE: 413,
   UNREADABLE_FILE: 422,
+  RATE_LIMITED: 429,
 } as const;
 export type IngestErrorCode = keyof typeof INGEST_ERROR_STATUS;
 
@@ -55,16 +56,26 @@ const REASONS = {
     message: () =>
       "We couldn't read this PDF. It may be damaged or protected. Try exporting it again.",
   },
+  PDF_BUSY: {
+    code: "RATE_LIMITED",
+    message: () =>
+      "Lots of notes are being processed right now. Try again in a few seconds.",
+  },
 } as const satisfies Record<
   string,
   { code: IngestErrorCode; message: (limits: IngestLimits) => string }
 >;
 export type IngestErrorReason = keyof typeof REASONS;
 
+/** Sent as `Retry-After` with PDF_BUSY: about one PDF parse. */
+export const PDF_BUSY_RETRY_AFTER_SECONDS = 15;
+
 export class IngestError extends Error {
   readonly code: IngestErrorCode;
   readonly status: (typeof INGEST_ERROR_STATUS)[IngestErrorCode];
   readonly reason: IngestErrorReason;
+  /** Set for RATE_LIMITED, for the route's `Retry-After` header. */
+  readonly retryAfterSeconds?: number;
 
   constructor(reason: IngestErrorReason, limits: IngestLimits) {
     const { code, message } = REASONS[reason];
@@ -73,5 +84,7 @@ export class IngestError extends Error {
     this.code = code;
     this.status = INGEST_ERROR_STATUS[code];
     this.reason = reason;
+    if (code === "RATE_LIMITED")
+      this.retryAfterSeconds = PDF_BUSY_RETRY_AFTER_SECONDS;
   }
 }

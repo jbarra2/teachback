@@ -100,11 +100,11 @@ describe("extractText: real notes", () => {
     expect(text).toContain("Client → server");
   });
 
-  it("reads a text PDF", async () => {
-    const text = await extractText(
-      fixture("cell-biology.pdf"),
-      "cell-biology.pdf",
-    );
+  it("reads a text PDF, leaving the caller's buffer intact", async () => {
+    const data = fixture("cell-biology.pdf");
+    const before = data.byteLength;
+    const text = await extractText(data, "cell-biology.pdf");
+    expect(data.byteLength).toBe(before);
     expect(text).toContain("Selective permeability");
     expect(text).toContain("phospholipid");
     expect(text).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f]/);
@@ -142,6 +142,25 @@ describe("extractText: hostile uploads", () => {
       "CONTENT_MISMATCH",
     );
   });
+
+  it.each([
+    ["little-endian", [0xff, 0xfe]],
+    ["big-endian", [0xfe, 0xff]],
+  ])(
+    "asks for UTF-8 when given a UTF-16 (%s) text file (400)",
+    async (_, bom) => {
+      const utf16 = new Uint8Array([
+        ...bom,
+        ...[...bytes("Notes")].flatMap((b) => [b, 0]),
+      ]);
+      const error = await expectIngestError(
+        extractText(utf16, "notepad.txt"),
+        "UNSUPPORTED_TYPE",
+        "INVALID_TEXT_ENCODING",
+      );
+      expect(error.message).toContain("Save it as UTF-8");
+    },
+  );
 
   it("rejects invalid UTF-8 (400)", async () => {
     await expectIngestError(
@@ -258,6 +277,26 @@ describe("extractText: limits", () => {
     expect(error.message).toContain("200,000-character limit");
   });
 
+  it("counts characters (code points), not UTF-16 units", async () => {
+    // "𝑥" is one character but two UTF-16 units, as are emoji.
+    const max = 200_000;
+    await expect(
+      extractText(bytes("𝑥".repeat(max - 1) + "😀"), "math.txt"),
+    ).resolves.toHaveLength(2 * max);
+    await expectIngestError(
+      extractText(bytes("𝑥".repeat(max + 1)), "math.txt"),
+      "PAYLOAD_TOO_LARGE",
+      "TEXT_TOO_LONG",
+    );
+  });
+
+  it("counts characters after trimming", async () => {
+    const text = " \n\t" + "a".repeat(200_000) + "\n\n ";
+    await expect(extractText(bytes(text), "notes.txt")).resolves.toBe(
+      "a".repeat(200_000),
+    );
+  });
+
   it("counts characters after normalization", async () => {
     const text = "a".repeat(200_000) + "\u0007\u001b".repeat(100);
     await expect(extractText(bytes(text), "notes.txt")).resolves.toHaveLength(
@@ -340,11 +379,25 @@ describe("normalizeNoteText", () => {
   });
 
   it("converts CRLF and CR line endings to LF", () => {
-    expect(normalizeNoteText("one\r\ntwo\rthree\n")).toBe("one\ntwo\nthree\n");
+    expect(normalizeNoteText("one\r\ntwo\rthree")).toBe("one\ntwo\nthree");
+  });
+
+  it("trims the text, as the request schemas do", () => {
+    expect(normalizeNoteText(" \n\t notes \r\n ")).toBe("notes");
+  });
+
+  it("replaces unpaired surrogates and leaves valid characters alone", () => {
+    const valid = "x 𝑥 λ 😀 é 中文 → ✓";
+    expect(normalizeNoteText(valid)).toBe(valid);
+    expect(normalizeNoteText("a\uD800b\uDC00c \uDBFF")).toBe(
+      "a\uFFFDb\uFFFDc \uFFFD",
+    );
+    expect(normalizeNoteText("𝑥\uDC00𝑥").isWellFormed()).toBe(true);
+    expect(normalizeNoteText("𝑥\uDC00𝑥")).toBe("𝑥\uFFFD𝑥");
   });
 
   it("strips a leading byte order mark", () => {
-    expect(normalizeNoteText("﻿notes")).toBe("notes");
+    expect(normalizeNoteText("\uFEFFnotes")).toBe("notes");
   });
 
   it("rejects text that is empty after normalization (422)", () => {
