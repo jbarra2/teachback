@@ -50,6 +50,10 @@ export function normalizeForMatch(text: string): string {
     .trim();
 }
 
+// A word or two appears in almost any note, so it proves nothing (and an empty quote is a
+// substring of everything). Counted after normalizeForMatch, which leaves single spaces.
+const MIN_QUOTE_WORDS = 3;
+
 const AT_MOST_MEDIUM: Record<Confidence, Confidence> = {
   HIGH: "MEDIUM",
   MEDIUM: "MEDIUM",
@@ -57,8 +61,8 @@ const AT_MOST_MEDIUM: Record<Confidence, Confidence> = {
 };
 
 /**
- * Keeps evidence only if its chunk was provided and its normalized quote is a non-empty substring
- * of that chunk. Any drop caps confidence at MEDIUM; no evidence left means LOW and `unsupported`.
+ * Keeps evidence only if its chunk was provided and its normalized quote is at least three words
+ * and a substring of that chunk. Any drop caps confidence at MEDIUM; no evidence left means LOW and `unsupported`.
  * `unsupported` is always set here, never taken from the input. The input is not mutated.
  */
 export function verifyEvidence<F extends VerifiableFeedback>(
@@ -71,9 +75,8 @@ export function verifyEvidence<F extends VerifiableFeedback>(
   const evidence = feedback.evidence.filter(({ chunkId, quote }) => {
     const text = texts.get(chunkId);
     if (text === undefined) return false;
-    // An empty quote is a substring of everything, so it proves nothing.
     const needle = normalizeForMatch(quote);
-    if (needle === "") return false;
+    if (needle.split(" ").length < MIN_QUOTE_WORDS) return false;
     let haystack = normalized.get(chunkId);
     if (haystack === undefined) {
       haystack = normalizeForMatch(text);

@@ -91,9 +91,40 @@ describe("verifyEvidence: which quotes survive", () => {
     expect(kept([{ chunkId: "c1", quote }])).toEqual([]);
   });
 
+  it.each(["energy", "light energy", "  LIGHT\n\t energy  ", "chloroplasts —"])(
+    "drops a real quote shorter than three words (%j)",
+    (quote) => {
+      expect(kept([{ chunkId: "c1", quote }])).toEqual([]);
+    },
+  );
+
+  it("keeps a real quote of exactly three words", () => {
+    const quote = { chunkId: "c1", quote: "light energy into" };
+    expect(verifyEvidence(feedback([quote]), CHUNKS)).toMatchObject({
+      evidence: [quote],
+      confidence: "HIGH",
+      unsupported: false,
+    });
+  });
+
+  it("can't be gamed with one-word quotes: only short quotes means LOW and unsupported", () => {
+    const result = verifyEvidence(
+      feedback([
+        { chunkId: "c1", quote: "the" },
+        { chunkId: "c2", quote: "light" },
+      ]),
+      CHUNKS,
+    );
+    expect(result).toMatchObject({
+      evidence: [],
+      confidence: "LOW",
+      unsupported: true,
+    });
+  });
+
   it("keeps the surviving items in their original order", () => {
     const a = { chunkId: "c2", quote: "fix CO2 into sugar" };
-    const b = { chunkId: "c1", quote: "made up" };
+    const b = { chunkId: "c1", quote: "made up words" };
     const c = { chunkId: "c1", quote: "in the chloroplasts" };
     expect(kept([a, b, c])).toEqual([a, c]);
   });
@@ -105,7 +136,7 @@ describe("verifyEvidence: normalization", () => {
       kept([
         { chunkId: "c1", quote: "chemical   energy. It\nhappens" },
         { chunkId: "c2", quote: "into sugar. It doesn’t" },
-        { chunkId: "c1", quote: "  light energy  " },
+        { chunkId: "c1", quote: "  light energy into  " },
       ]),
     ).toHaveLength(3);
   });
@@ -135,8 +166,8 @@ describe("verifyEvidence: normalization", () => {
   it("straightens dashes and minus signs", () => {
     expect(
       kept([
-        { chunkId: "c1", quote: "chloroplasts - mostly" },
-        { chunkId: "c1", quote: "chloroplasts – mostly" },
+        { chunkId: "c1", quote: "chloroplasts - mostly in" },
+        { chunkId: "c1", quote: "chloroplasts – mostly in" },
         { chunkId: "c3", quote: "pores are 2-3 nm" },
         { chunkId: "c3", quote: "pores are 2−3 nm" },
         { chunkId: "c3", quote: "pores are 2‑3 nm" },
@@ -150,7 +181,7 @@ describe("verifyEvidence: normalization", () => {
         { chunkId: "c3", quote: "fixed in size" },
         { chunkId: "c3", quote: "lipids and proteins... pores" },
         { chunkId: "c2", quote: "ＡＴＰ and NADPH" },
-        { chunkId: "c2", quote: "Calvin cycle" },
+        { chunkId: "c2", quote: "Calvin cycle uses" },
       ]),
     ).toHaveLength(4);
   });
@@ -175,8 +206,8 @@ describe("verifyEvidence: normalization", () => {
 });
 
 describe("verifyEvidence: confidence and unsupported", () => {
-  const real = { chunkId: "c1", quote: "light energy" };
-  const fake = { chunkId: "c1", quote: "dark energy" };
+  const real = { chunkId: "c1", quote: "light energy into" };
+  const fake = { chunkId: "c1", quote: "dark energy into" };
 
   it.each<[Confidence, Confidence]>([
     ["HIGH", "MEDIUM"],
@@ -350,7 +381,7 @@ describe("verifyEvidence: randomized", () => {
     const { pick, slice, disguise } = makeGenerators(random);
     for (let n = 0; n < 200; n++) {
       const chunk = pick(NOTES);
-      const quote = disguise(slice(chunk, 1, 12).join(" "));
+      const quote = disguise(slice(chunk, 3, 12).join(" "));
       const result = verifyEvidence(
         feedback([{ chunkId: chunk.id, quote }]),
         NOTES,
@@ -359,6 +390,22 @@ describe("verifyEvidence: randomized", () => {
         1,
       );
       expect(result.unsupported).toBe(false);
+    }
+  });
+
+  it("drops every real one- and two-word quote in the notes", () => {
+    for (const chunk of NOTES) {
+      const all = chunk.text.split(/\s+/);
+      for (let i = 0; i < all.length; i++) {
+        for (const quote of [all[i], all.slice(i, i + 2).join(" ")]) {
+          expect(inNote(quote, chunk)).toBe(true);
+          expect(
+            verifyEvidence(feedback([{ chunkId: chunk.id, quote }]), NOTES)
+              .evidence,
+            quote,
+          ).toEqual([]);
+        }
+      }
     }
   });
 });
