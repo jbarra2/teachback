@@ -33,12 +33,6 @@ const ROUTE_FILE = /^route\.(ts|tsx|js|jsx)$/;
  */
 const NOT_BUILT_YET: Record<string, string> = {
   getHealth: "T14",
-  listCourses: "T13",
-  createCourse: "T13",
-  getCourse: "T13",
-  listCourseConcepts: "T21",
-  getCourseMap: "T21",
-  getNextConcept: "T21",
   uploadDocument: "T12",
   getDocument: "T12",
   createQuestion: "T17",
