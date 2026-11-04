@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { deflateSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,15 +17,26 @@ import { MEMORY_WATCHDOG_INTERVAL_MS } from "./pdf-child";
 
 // These start real child processes with real hostile PDFs, built in memory below.
 
-// Records every child started, keeping the real fork, so a test can check they all ended.
+// Records every child started, keeping the real fork, so a test can check they all ended, and
+// when each one started, exited and closed its IPC channel (for the timing diagnostics).
+interface ChildTiming {
+  started: number;
+  exited?: number;
+  closed?: number;
+}
 const forked = vi.hoisted(() => [] as ChildProcess[]);
+const timings = vi.hoisted(() => new Map<ChildProcess, ChildTiming>());
 vi.mock("node:child_process", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:child_process")>();
   return {
     ...real,
     fork: (...args: Parameters<typeof real.fork>) => {
       const child = real.fork(...args);
+      const timing: ChildTiming = { started: performance.now() };
+      child.once("exit", () => (timing.exited = performance.now()));
+      child.once("close", () => (timing.closed = performance.now()));
       forked.push(child);
+      timings.set(child, timing);
       return child;
     },
   };
@@ -32,6 +44,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 afterEach(() => {
   forked.length = 0;
+  timings.clear();
 });
 
 function expectAllChildrenGone() {
@@ -124,7 +137,15 @@ function watchHeartbeat() {
 const cellBiology = () =>
   new Uint8Array(readFileSync("fixtures/notes/cell-biology.pdf"));
 
-describe("PDF parsing in a child process", () => {
+/** Milliseconds between two moments, or "never" if the second didn't happen. */
+const ms = (from: number | undefined, to: number | undefined) =>
+  from === undefined || to === undefined
+    ? "never"
+    : `${Math.round(to - from)} ms`;
+
+// Real processes run much slower on a busy 2-CPU CI runner than locally, so these tests get more
+// than Vitest's default 5 s. The production caps they check don't change.
+describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
   it("has the agreed caps", () => {
     expect(PDF_TIMEOUT_MS).toBe(15_000);
     expect(PDF_CHILD_HEAP_MB).toBe(256);
@@ -154,7 +175,9 @@ describe("PDF parsing in a child process", () => {
     expectAllChildrenGone();
   });
 
-  it("survives a 1 KB PDF that makes V8 abort, and keeps working", async () => {
+  it("survives a 1 KB PDF that makes V8 abort, and keeps working", async ({
+    annotate,
+  }) => {
     // A glyph mapped to 30,000 characters, drawn 1,000 times: PDF.js runs out of heap in native
     // code, which aborts the whole process. With a worker thread, that was the server.
     const pdf = pdfWithContent(
@@ -163,16 +186,39 @@ describe("PDF parsing in a child process", () => {
       hex("a".repeat(30_000)),
     );
     expect(pdf.byteLength).toBeLessThan(2 * 1024);
+    const started = performance.now();
+    let rejected: number | undefined;
+    let recovered: number | undefined;
 
-    await expect(
-      readPdf(pdf, ingestLimits(), { memoryBudgetMb: 4096 }),
-    ).rejects.toMatchObject({ status: 422, reason: "UNREADABLE_PDF" });
-    expectAllChildrenGone();
-    // V8's fatal error aborted the child, not the time cap or the watchdog.
-    expect(forked[0].signalCode).toBe("SIGABRT");
-    await expect(
-      extractText(cellBiology(), "cell-biology.pdf"),
-    ).resolves.toContain("Selective permeability");
+    try {
+      await expect(
+        readPdf(pdf, ingestLimits(), { memoryBudgetMb: 4096 }),
+      ).rejects.toMatchObject({ status: 422, reason: "UNREADABLE_PDF" });
+      rejected = performance.now();
+      expectAllChildrenGone();
+      // V8's fatal error aborted the child, not the time cap or the watchdog.
+      expect(forked[0].signalCode).toBe("SIGABRT");
+      await expect(
+        extractText(cellBiology(), "cell-biology.pdf"),
+      ).resolves.toContain("Selective permeability");
+      recovered = performance.now();
+    } finally {
+      // Durations, the signal and the CPU count only, never any PDF text. Linux writes a crash
+      // dump before it reports the exit, so a dump shows up as an abort that's slow compared
+      // with the normal parse after it; slow cleanup shows up after the exit.
+      const child = timings.get(forked[0]);
+      await annotate(
+        [
+          `abort: ${ms(child?.started, child?.exited)} from fork to exit (${String(forked[0]?.signalCode)})`,
+          `IPC closed ${ms(child?.exited, child?.closed)} after exit`,
+          `rejected ${ms(child?.closed, rejected)} after close`,
+          `next PDF parsed in ${ms(rejected, recovered)}`,
+          `total ${ms(started, recovered ?? performance.now())}`,
+          `${availableParallelism()} CPUs`,
+        ].join(", "),
+        "timing",
+      );
+    }
   });
 
   it("kills a PDF that grows past the memory budget, long before the time cap", async () => {
