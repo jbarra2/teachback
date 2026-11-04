@@ -26,6 +26,11 @@ export interface PdfRequest {
   limits: PdfLimits;
   /** The child kills itself when its resident memory passes this. */
   memoryBudgetBytes: number;
+  /**
+   * The child also kills itself this long after it gets the request, even if the server that
+   * started it died mid-parse and can no longer enforce its own time cap.
+   */
+  deadlineMs: number;
 }
 export type PdfResult =
   | { text: string }
@@ -134,11 +139,17 @@ export async function readPdfText(
 
 // Runs on its own thread, so it keeps checking while PDF.js blocks the child's main thread. RSS is
 // the whole process's memory, including PDF.js's ArrayBuffers, which V8's heap limit doesn't see.
+// The deadline uses only this thread's clock, so it holds even if the server is gone.
 const WATCHDOG = `
 const { workerData } = require("node:worker_threads");
+const { budget, deadlineMs, interval } = workerData;
+// A missing or invalid deadline fails closed: the child ends now rather than never.
+const valid = Number.isFinite(deadlineMs) && deadlineMs > 0;
+const deadline = performance.now() + (valid ? deadlineMs : 0);
 setInterval(() => {
-  if (process.memoryUsage.rss() > workerData.budget) process.kill(process.pid, "SIGKILL");
-}, workerData.interval);
+  if (process.memoryUsage.rss() > budget || performance.now() > deadline)
+    process.kill(process.pid, "SIGKILL");
+}, interval);
 `;
 
 if (process.send && process.argv.includes(PDF_CHILD_FLAG)) {
@@ -147,6 +158,7 @@ if (process.send && process.argv.includes(PDF_CHILD_FLAG)) {
       eval: true,
       workerData: {
         budget: request.memoryBudgetBytes,
+        deadlineMs: request.deadlineMs,
         interval: MEMORY_WATCHDOG_INTERVAL_MS,
       },
     }).unref();

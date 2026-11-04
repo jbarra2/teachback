@@ -125,7 +125,7 @@ describe("PDF child process", () => {
     });
   });
 
-  it("sends the bytes, the limits and the memory budget", async () => {
+  it("sends the bytes, the limits, the memory budget and the time cap as the child's deadline", async () => {
     const result = readPdf(PDF, LIMITS, { memoryBudgetMb: 64 });
     await settle();
     expect(children[0].sent).toEqual([
@@ -133,6 +133,7 @@ describe("PDF child process", () => {
         data: PDF,
         limits: { maxPdfPages: 100, maxNoteChars: 100 },
         memoryBudgetBytes: 64 * 1024 * 1024,
+        deadlineMs: 15_000,
       },
     ]);
     children[0].answer({ text: "x" });

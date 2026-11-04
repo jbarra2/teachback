@@ -208,6 +208,8 @@ async function parseInChild(
           maxNoteChars: limits.maxNoteChars,
         },
         memoryBudgetBytes: memoryBudgetMb * 1024 * 1024,
+        // The same cap, enforced again inside the child in case this process dies first.
+        deadlineMs: timeoutMs,
       };
       child.send(request, (error) => {
         if (error) fail();

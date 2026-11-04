@@ -44,6 +44,7 @@ Structured outputs get you the right JSON shape but don't enforce limits like `m
 - Changed `next.config.ts` and its pinned test in `tests/tooling/project-config.test.ts`, both under exceptions the lead approved, so the child's files ship with the build.
 - The final security review found that when the server can't start the child (out of memory or file descriptors), the upload waited forever and kept one of the two parse slots, so two failures blocked every PDF upload until a restart. That case now returns 429 `PDF_BUSY` instead of 422, because the server is temporarily short, not the PDF unreadable, and regression tests check that the slot is freed.
 - The parent now waits for the child's `close` event instead of `exit`, because Node doesn't guarantee it has read the child's answer when it reports the exit. I couldn't reproduce the race locally, so a regression test delivers the answer after the exit.
+- After Jonathan's final review, I added an independent deadline to the child's memory watchdog so PDF parsing can't continue indefinitely if the server crashes. I tested this by killing a stand-in server during parsing and confirming the child terminated on its own.
 - Also from review: the note limit counts characters (code points) after trimming, the same way the request schemas count them, and unpaired surrogates are replaced with U+FFFD so PostgreSQL never refuses the text. I kept `unpdf@2.1.0` because the lead had already checked the package.
 
 **Hardest part, and how I solved it:**

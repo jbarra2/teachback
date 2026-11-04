@@ -1,6 +1,12 @@
-import type { ChildProcess } from "node:child_process";
+import {
+  type ChildProcess,
+  fork,
+  type ForkOptions,
+  spawn,
+} from "node:child_process";
 import { readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
+import path from "node:path";
 import { deflateSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,12 +14,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   extractText,
   ingestLimits,
+  PDF_CHILD_ENTRY,
   PDF_CHILD_HEAP_MB,
   PDF_MEMORY_BUDGET_MB,
   PDF_TIMEOUT_MS,
   readPdf,
 } from "./extract-text";
-import { MEMORY_WATCHDOG_INTERVAL_MS } from "./pdf-child";
+import {
+  MEMORY_WATCHDOG_INTERVAL_MS,
+  PDF_CHILD_FLAG,
+  type PdfRequest,
+} from "./pdf-child";
 
 // These start real child processes with real hostile PDFs, built in memory below.
 
@@ -42,10 +53,40 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
+// Processes started outside readPdf, killed after each test in case an assertion failed first.
+// Handles are only killed if Node hasn't seen them end; the orphaned PDF child, which isn't ours
+// to reap, is only killed while the test hasn't seen it end, so a reused pid is never hit.
+const strays: ChildProcess[] = [];
+const orphans = new Set<number>();
+
 afterEach(() => {
   forked.length = 0;
   timings.clear();
+  for (const child of strays.splice(0))
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+  for (const pid of orphans) if (isAlive(pid)) process.kill(pid, "SIGKILL");
+  orphans.clear();
 });
+
+function isAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolves with how long `pid` took to end, or Infinity if it's still running after `withinMs`. */
+async function timeUntilGone(pid: number, withinMs: number) {
+  const started = performance.now();
+  while (performance.now() - started < withinMs) {
+    if (!isAlive(pid)) return performance.now() - started;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return Infinity;
+}
 
 function expectAllChildrenGone() {
   expect(forked.length).toBeGreaterThan(0);
@@ -133,6 +174,37 @@ function watchHeartbeat() {
     return Math.max(maxGap, performance.now() - last);
   };
 }
+
+/**
+ * 40 pages sharing 16 MB of "save state, restore state" operators: no text and little memory,
+ * but about a minute of parsing, so only a time limit ends it.
+ */
+const slowPdf = () =>
+  pdfWithContent(Buffer.from("q Q\n".repeat(4 * 1024 * 1024)), 40);
+
+/** A request as readPdf would send it, with a 1 s deadline for the child's own watchdog. */
+const slowRequest = (): PdfRequest => ({
+  data: slowPdf(),
+  limits: { maxPdfPages: 100, maxNoteChars: 1000 },
+  memoryBudgetBytes: 4096 * 1024 * 1024,
+  deadlineMs: 1000,
+});
+
+const childOptions: ForkOptions = {
+  execArgv: [`--max-old-space-size=${PDF_CHILD_HEAP_MB}`],
+  env: { NODE_ENV: "test" },
+  serialization: "advanced",
+  stdio: ["ignore", "ignore", "ignore", "ipc"],
+};
+
+// Stands in for the server: starts the PDF child, hands it the request, reports its pid.
+const STAND_IN_SERVER = `
+const { fork } = require("node:child_process");
+process.once("message", ({ entry, flag, options, request }) => {
+  const child = fork(entry, [flag], options);
+  child.send(request, () => process.send(child.pid));
+});
+`;
 
 const cellBiology = () =>
   new Uint8Array(readFileSync("fixtures/notes/cell-biology.pdf"));
@@ -253,6 +325,87 @@ describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
       status: 422,
       reason: "NO_TEXT",
     });
+    expectAllChildrenGone();
+  });
+
+  it("kills itself at its own deadline, with no time cap from the server", async () => {
+    expect(slowPdf().byteLength).toBeLessThan(64 * 1024);
+    // Started directly, so no server-side timer exists: only the child's watchdog can end it.
+    const child = fork(
+      path.join(process.cwd(), PDF_CHILD_ENTRY),
+      [PDF_CHILD_FLAG],
+      childOptions,
+    );
+    strays.push(child);
+    const started = performance.now();
+    const exited = new Promise<NodeJS.Signals | null>((resolve) =>
+      child.once("exit", (_code, signal) => resolve(signal)),
+    );
+    const answered = vi.fn();
+    child.once("message", answered);
+    child.send(slowRequest());
+
+    await expect(exited).resolves.toBe("SIGKILL");
+    const took = performance.now() - started;
+    expect(took).toBeGreaterThanOrEqual(1000);
+    expect(took).toBeLessThan(8000);
+    expect(answered).not.toHaveBeenCalled();
+  });
+
+  it("doesn't outlive a server that dies while it's parsing", async () => {
+    const server = spawn(process.execPath, ["-e", STAND_IN_SERVER], {
+      env: { NODE_ENV: "test" },
+      serialization: "advanced",
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+    });
+    strays.push(server);
+    const pid = await new Promise<number>((resolve) => {
+      server.once("message", (message) => resolve(message as number));
+      server.send({
+        entry: path.join(process.cwd(), PDF_CHILD_ENTRY),
+        flag: PDF_CHILD_FLAG,
+        options: childOptions,
+        request: slowRequest(),
+      });
+    });
+    orphans.add(pid);
+
+    // The server crashes mid-parse: nothing is left to enforce its time cap.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(isAlive(pid)).toBe(true);
+    const serverGone = new Promise((resolve) => server.once("exit", resolve));
+    server.kill("SIGKILL");
+    await serverGone;
+    expect(isAlive(pid)).toBe(true);
+
+    // Without its own deadline, the child would parse for about a minute more.
+    const gone = await timeUntilGone(pid, 8000);
+    if (gone < Infinity) orphans.delete(pid);
+    expect(gone).toBeLessThan(8000);
+  });
+
+  it("fails closed when the child gets no valid deadline", async () => {
+    // Without the check, NaN would turn the deadline off: `now > NaN` is always false.
+    const child = fork(
+      path.join(process.cwd(), PDF_CHILD_ENTRY),
+      [PDF_CHILD_FLAG],
+      childOptions,
+    );
+    strays.push(child);
+    const exited = new Promise<NodeJS.Signals | null>((resolve) =>
+      child.once("exit", (_code, signal) => resolve(signal)),
+    );
+    const started = performance.now();
+    child.send({ ...slowRequest(), deadlineMs: Number.NaN });
+
+    await expect(exited).resolves.toBe("SIGKILL");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("finishes a normal PDF well inside a short deadline", async () => {
+    await expect(
+      readPdf(cellBiology(), ingestLimits(), { timeoutMs: 8000 }),
+    ).resolves.toContain("Selective permeability");
     expectAllChildrenGone();
   });
 
