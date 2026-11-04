@@ -50,7 +50,9 @@ export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
         signal: controller.signal,
       }),
     ).then(
-      (course) => setState({ status: "ready", course }),
+      (course) => {
+        if (!controller.signal.aborted) setState({ status: "ready", course });
+      },
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
         // An unknown id and another student's course look the same: not found.
@@ -190,7 +192,10 @@ function Concepts({
         signal: controller.signal,
       }),
     ).then(
-      (concepts) => setState({ status: "ready", concepts }),
+      // A newer request (or unmount) replaced this one: its answer is stale.
+      (concepts) => {
+        if (!controller.signal.aborted) setState({ status: "ready", concepts });
+      },
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
         setState({ status: "error", message: errorMessage(error) });

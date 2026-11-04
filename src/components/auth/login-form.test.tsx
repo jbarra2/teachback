@@ -99,16 +99,21 @@ describe("LoginForm", () => {
     expect(router.replace).toHaveBeenCalledWith("/courses/c1/map?x=1");
   });
 
-  it.each(["https://evil.example/", "//evil.example", "/\\evil.example"])(
-    "never follows ?next= off this site (%s)",
-    async (next) => {
-      render(<LoginForm next={next} onSubmit={ok} />);
-      type(email(), "ada@example.com");
-      type(password(), "correct horse");
-      await act(async () => submit());
-      expect(router.replace).toHaveBeenCalledWith("/courses");
-    },
-  );
+  it.each([
+    "https://evil.example/",
+    "//evil.example",
+    "/\\evil.example",
+    // What ?next=/%09/evil.example arrives as after decoding.
+    "/\t/evil.example",
+    "javascript:alert(1)",
+    "/.//evil.example",
+  ])("never follows ?next= off this site (%s)", async (next) => {
+    render(<LoginForm next={next} onSubmit={ok} />);
+    type(email(), "ada@example.com");
+    type(password(), "correct horse");
+    await act(async () => submit());
+    expect(router.replace).toHaveBeenCalledWith("/courses");
+  });
 
   it("shows the failure message and stays on the page", async () => {
     const onSubmit = vi.fn(async () => RATE_LIMITED);
@@ -124,8 +129,8 @@ describe("LoginForm", () => {
     let finish = () => {};
     const onSubmit = vi.fn(
       () =>
-        new Promise<undefined>(
-          (resolve) => (finish = () => resolve(undefined)),
+        new Promise<string | undefined>(
+          (resolve) => (finish = () => resolve(RATE_LIMITED)),
         ),
     );
     render(<LoginForm onSubmit={onSubmit} />);
@@ -143,8 +148,25 @@ describe("LoginForm", () => {
       email: "ada@example.com",
       password: "correct horse",
     });
+    // It failed, so the student can try again.
     await act(async () => finish());
     expect(button).toBeEnabled();
+  });
+
+  // PR #59 review: the button used to re-enable while the page was changing, so a second click
+  // signed in again.
+  it("stays busy after signing in, so a second click doesn't sign in again", async () => {
+    render(<LoginForm onSubmit={ok} />);
+    type(email(), "ada@example.com");
+    type(password(), "correct horse");
+    await act(async () => submit());
+    expect(router.replace).toHaveBeenCalledOnce();
+    const button = screen.getByRole("button", { name: /Log in/ });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    fireEvent.submit(screen.getByRole("form", { name: "Log in" }));
+    await act(async () => {});
+    expect(ok).toHaveBeenCalledOnce();
   });
 
   it("doesn't call onSubmit when a field is invalid", () => {

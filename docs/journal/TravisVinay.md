@@ -58,3 +58,32 @@ The first version loaded the question with a function called from `useEffect` th
 
 **What I learned:**
 A disabled button doesn't stop two submits fired in the same tick (a click plus Ctrl+Enter), because the `pending` state only shows up on the next render. A ref checked at the top of the submit handler closes that gap. I also learned that an effect should only start the async work and react to its result. Resetting state belongs in the event handler that triggers the reload.
+
+## T15 · Notes library & upload UI (#15) · Nov 4, 2026
+
+<!-- needs-review -->
+
+**What I built:** The notes side of the app, plus real sign-in:
+
+- login, signup and sign-out wired to Better Auth, with fixed error messages and a same-origin check on `?next=`
+- `/courses`: list and create courses
+- `/courses/[courseId]`: upload a file or pasted text, a status list that polls each document until it's ready or failed, and the course's concepts with links to practice
+- a `charCount` helper so field counters count characters the way the server does
+
+**Skills & tools:** Next.js 16 App Router, React 19 client components and effects, Better Auth's client, `AbortController` and polling with backoff, the typed openapi-fetch client and its mocks, Vitest + Testing Library (jsdom)
+
+**Asked Claude for:** Build T15 from the acceptance criteria, then apply the lead's review on PR #59: aborts on the mocks, stale answers after unmount or a course change, the upload form keeping a file after switching modes, counters and limits that match the server, and a few more `?next=` and double-submit cases. Each fix got a test that failed before it.
+
+**Decided / dropped:**
+
+- The mock fetch now honours the request's abort signal. openapi-fetch leaves that to `fetch`, so before the fix an aborted request on the mocks still created data.
+- `isAbortError` checks the error's name only, because in jsdom an abort error isn't an instance of the global `DOMException`.
+- Counters count trimmed code points, like the server's `text()`. Fields keep the native `maxLength` as an upper bound: it counts UTF-16 units, which are never fewer than code points, so it can stop typing a little early but never lets a too-long value through.
+- Each auth field is counted the way the server counts it: names by code point, passwords and email in UTF-16 units. All limits come from the shared `LIMITS`.
+- The auth form stays busy after a successful sign-in, so a second click can't sign in again while the page navigates.
+
+**Hardest part, and how I solved it:**
+Proving the "ignore a late answer" guard in the course page. My first test passed even without the fix, because the mock now rejected the aborted request, so the late answer never arrived. The test now holds the first request and answers it with a copy of the request that has no abort signal, which is what a slow real server can do. With that, the test failed until I added the `signal.aborted` check.
+
+**What I learned:**
+Aborting a request doesn't stop code that is already waiting on it: after every `await` in an effect, check whether it was cancelled before setting state. And a regression test only counts once you've seen it fail without the fix.

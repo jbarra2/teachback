@@ -142,6 +142,9 @@ export function UploadForm({
                   setMode(value);
                   setErrors({});
                   setNotice(undefined);
+                  // The file input remounts empty, so forget its file too.
+                  setFile(undefined);
+                  setFileKey((n) => n + 1);
                 }}
               />
               {label}

@@ -38,7 +38,9 @@ export function CourseLibrary({ client = api }: CourseLibraryProps) {
   useEffect(() => {
     const controller = new AbortController();
     unwrap(client.GET("/api/courses", { signal: controller.signal })).then(
-      (courses) => setList({ status: "ready", courses }),
+      (courses) => {
+        if (!controller.signal.aborted) setList({ status: "ready", courses });
+      },
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
         setList({ status: "error", message: errorMessage(error) });

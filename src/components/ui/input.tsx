@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, Ref } from "react";
+import { charCount } from "./char-count";
 import { cn, focusRing } from "./cn";
 import { Field, describedBy } from "./field";
 
@@ -26,7 +27,7 @@ export function Input({
   className,
   ...props
 }: InputProps) {
-  const used = typeof value === "string" ? value.length : 0;
+  const used = typeof value === "string" ? charCount(value) : 0;
   const counter =
     showCount && maxLength !== undefined ? (
       <p

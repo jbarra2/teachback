@@ -9,6 +9,8 @@ import {
   concepts,
   courses,
 } from "@/lib/mocks/fixtures";
+import { MOCK_KEYS } from "@/lib/mocks/config";
+import { createMockFetch } from "@/lib/mocks/fetch";
 import { POLL_MS } from "./document-list";
 import { CourseNotes } from "./course-notes";
 import { errorResponse, mockClient, networkClient } from "./test-clients";
@@ -193,6 +195,37 @@ describe("CourseNotes", () => {
     await screen.findByRole("list", { name: "Concepts" });
     expect(screen.getAllByText(html)).toHaveLength(4);
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  // Regression (PR #59 review): an answer for the previous course, arriving after the switch,
+  // used to replace the current one.
+  it("ignores a late answer for a course it has moved away from", async () => {
+    const mocks = createMockFetch({ enabled: new Set(MOCK_KEYS), delayMs: 0 });
+    let releaseFirst: () => void = () => {};
+    const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve));
+    const { client } = networkClient(async (request) => {
+      if (new URL(request.url).pathname !== `/api/courses/${COURSE_ID}`)
+        return mocks(request);
+      // Like a server that answers anyway: the copy drops the (by then aborted) signal.
+      await firstHeld;
+      return mocks(new Request(request.url));
+    });
+    const { rerender } = render(
+      <CourseNotes courseId={COURSE_ID} client={client} />,
+    );
+    rerender(<CourseNotes courseId={COURSE_2_ID} client={client} />);
+    expect(
+      await screen.findByRole("heading", { name: courses[1]!.name }),
+    ).toBeInTheDocument();
+
+    await act(async () => releaseFirst());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(
+      screen.getByRole("heading", { name: courses[1]!.name }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: courses[0]!.name }),
+    ).not.toBeInTheDocument();
   });
 
   it("aborts its requests on unmount", async () => {

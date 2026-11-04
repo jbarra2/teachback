@@ -129,6 +129,20 @@ describe("UploadForm", () => {
     expect(upload).not.toHaveBeenCalled();
   });
 
+  // Regression (PR #59 review): the remounted picker showed "No file chosen" while the old file
+  // was still sent.
+  it("forgets the chosen file when switching to pasted text and back", async () => {
+    const { upload } = renderForm();
+    choose(file("week3.txt"));
+    usePastedText();
+    fireEvent.click(screen.getByRole("radio", { name: "A file" }));
+    await submit();
+    expect(fileInput()).toHaveAccessibleDescription(
+      expect.stringContaining("Choose a file to upload."),
+    );
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("asks for text when pasting and the box is blank", async () => {
     const { upload } = renderForm();
     usePastedText();

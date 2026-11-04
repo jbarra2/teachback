@@ -69,6 +69,8 @@ function DocumentRow({
   const done = isDone(status);
   // Polls keep failing: the list says it's still trying.
   const [retrying, setRetrying] = useState(false);
+  // The server says it's gone (or never ours): polling has stopped for good.
+  const [gone, setGone] = useState(false);
   // The latest callback, so a new one from the parent doesn't restart the polling.
   const report = useRef(onStatus);
   useEffect(() => {
@@ -89,6 +91,8 @@ function DocumentRow({
             signal: controller.signal,
           }),
         );
+        // Unmounted while the request was in flight, and it answered anyway.
+        if (controller.signal.aborted) return;
         delay = POLL_MS;
         setRetrying(false);
         report.current(state);
@@ -96,7 +100,11 @@ function DocumentRow({
       } catch (error) {
         if (controller.signal.aborted || isAbortError(error)) return;
         // Gone (or never ours): polling again won't change that.
-        if (error instanceof ApiError && error.code === "NOT_FOUND") return;
+        if (error instanceof ApiError && error.code === "NOT_FOUND") {
+          setRetrying(false);
+          setGone(true);
+          return;
+        }
         delay = Math.min(delay * 2, MAX_POLL_MS);
         setRetrying(true);
       }
@@ -116,13 +124,18 @@ function DocumentRow({
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium">{document.title}</span>
         <span className="flex items-center gap-2">
-          {!done && <Spinner label={`${label}…`} />}
+          {!done && !gone && <Spinner label={`${label}…`} />}
           <Badge tone={tone}>{label}</Badge>
         </span>
       </div>
       {status === "FAILED" && (
         <p className="text-sm text-danger">
           {document.error ?? "We couldn't process these notes."}
+        </p>
+      )}
+      {gone && (
+        <p className="text-sm text-muted">
+          This document is no longer available.
         </p>
       )}
       {retrying && (

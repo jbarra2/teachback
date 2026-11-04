@@ -171,6 +171,23 @@ describe("DocumentList", () => {
     expect(network).toHaveBeenCalledOnce();
   });
 
+  // PR #59 review: the row used to keep spinning, and after failed polls kept "Trying again…".
+  it("says a gone document is no longer available, after failed polls too", async () => {
+    const { client } = scripted([
+      () => errorResponse(500, "INTERNAL", "Something went wrong."),
+      () => errorResponse(404, "NOT_FOUND", "Not found."),
+    ]);
+    render(<Harness client={client} initial={[doc()]} />);
+    await tick(POLL_MS);
+    expect(screen.getByText(/Trying again/)).toBeInTheDocument();
+    await tick(MAX_POLL_MS);
+    expect(
+      screen.getByText("This document is no longer available."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Trying again/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("stops polling and aborts the request on unmount", async () => {
     let signal: AbortSignal | undefined;
     const { client, network } = networkClient(
@@ -184,6 +201,22 @@ describe("DocumentList", () => {
     expect(network).toHaveBeenCalledOnce();
     unmount();
     expect(signal?.aborted).toBe(true);
+    await tick(MAX_POLL_MS * 2);
+    expect(network).toHaveBeenCalledOnce();
+  });
+
+  // Regression (PR #59 review): a fetch that ignores the signal and answers after unmount used to
+  // carry on, report the status and schedule another poll that nothing cleared.
+  it("stops polling when a request answers after unmount", async () => {
+    let answer: (response: Response) => void = () => {};
+    const { client, network } = networkClient(
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    );
+    const { unmount } = render(<Harness client={client} initial={[doc()]} />);
+    await tick(POLL_MS);
+    expect(network).toHaveBeenCalledOnce();
+    unmount();
+    answer(Response.json(state("PROCESSING")));
     await tick(MAX_POLL_MS * 2);
     expect(network).toHaveBeenCalledOnce();
   });

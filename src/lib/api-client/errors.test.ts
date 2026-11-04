@@ -100,6 +100,11 @@ describe("isAbortError", () => {
     expect(isAbortError(new DOMException("aborted", "AbortError"))).toBe(true);
   });
 
+  it("recognises an abort error from another realm by its name", () => {
+    expect(isAbortError({ name: "AbortError", message: "aborted" })).toBe(true);
+    expect(isAbortError(AbortSignal.abort().reason)).toBe(true);
+  });
+
   it.each([
     ["another DOMException", new DOMException("x", "NetworkError")],
     ["a TypeError", new TypeError("Failed to fetch")],

@@ -48,15 +48,17 @@ export function useAuthForm<V extends Record<string, string>>({
     }
     busy.current = true;
     setPending(true);
+    let message: string | undefined;
     try {
-      const message = await onSubmit(values);
-      if (message) setNotice(message);
+      message = await onSubmit(values);
     } catch {
-      setNotice(GENERIC_MESSAGE);
-    } finally {
-      busy.current = false;
-      setPending(false);
+      message = GENERIC_MESSAGE;
     }
+    // Signed in: the page is changing, so stay busy and a second click can't submit again.
+    if (!message) return;
+    setNotice(message);
+    busy.current = false;
+    setPending(false);
   }
 
   return { values, errors, pending, notice, formRef, setValue, handleSubmit };
