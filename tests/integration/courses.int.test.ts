@@ -516,8 +516,8 @@ describe("GET /api/courses/{id}", () => {
 
     const missing = await detail(ada, MISSING_ID);
     expect(missing.status).toBe(404);
-    expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(await missing.json()).toEqual(body);
+    expect(missing.headers.get("cache-control")).toBe("private, no-store");
+    expect(await expectMatchesOpenApi(missing, DETAIL)).toEqual(body);
   });
 
   it.each(["not-an-id", "c123", "CCOURSE000000000000000001", `${MISSING_ID}x`])(
@@ -632,7 +632,8 @@ describe("GET /api/courses/{id}/concepts", () => {
 
     const missing = await concepts(ada, MISSING_ID);
     expect(missing.status).toBe(404);
-    expect(await missing.json()).toEqual(body);
+    expect(missing.headers.get("cache-control")).toBe("private, no-store");
+    expect(await expectMatchesOpenApi(missing, CONCEPTS)).toEqual(body);
   });
 
   it.each([

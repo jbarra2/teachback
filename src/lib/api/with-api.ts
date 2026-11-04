@@ -1,7 +1,8 @@
 // Every API route is wrapped in withApi() (PLAN §4): auth (401) · Origin check (403) · body limit
-// (413) · rate limit (429, T14) · zod (400) · safe errors (500 + request id) · Cache-Control: private, no-store. Handlers only parse,
-// call one service and return contract-shaped JSON. Everything is read from the Request itself, so
-// tests call a route's exported GET/POST with a constructed Request.
+// (413) · rate limit (429, T14) · zod (400) · safe errors (500 + request id) · Cache-Control:
+// private, no-store. Handlers only parse, call one service and return contract-shaped JSON.
+// Everything is read from the Request itself, so tests call a route's exported GET/POST with a
+// constructed Request.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { authEnvProblems, readAuthEnv } from "@/lib/auth-env";
