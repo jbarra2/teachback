@@ -1,19 +1,33 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
+import { safeNextPath } from "@/lib/schemas";
+import { logIn } from "./auth-actions";
 import { useAuthForm } from "./use-auth-form";
 import { validateLogin, type LoginValues } from "./validation";
 
 interface LoginFormProps {
-  onSubmit?: (values: LoginValues) => Promise<void> | void;
+  /** Where to go after signing in, from `?next=`. Only a path on this site is followed. */
+  next?: string;
+  /** Tests pass a stand-in. Returns a message when sign-in fails. */
+  onSubmit?: (values: LoginValues) => Promise<string | undefined>;
 }
 
-export function LoginForm({ onSubmit }: LoginFormProps) {
+export function LoginForm({ next, onSubmit = logIn }: LoginFormProps) {
+  const router = useRouter();
   const { values, errors, pending, notice, formRef, setValue, handleSubmit } =
     useAuthForm<LoginValues>({
       initial: { email: "", password: "" },
       validate: validateLogin,
-      onSubmit,
+      onSubmit: async (submitted) => {
+        const message = await onSubmit(submitted);
+        if (message) return message;
+        router.replace(safeNextPath(next, window.location.origin));
+        // Server components re-render with the new session.
+        router.refresh();
+        return undefined;
+      },
     });
 
   return (
