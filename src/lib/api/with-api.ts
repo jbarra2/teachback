@@ -1,5 +1,5 @@
 // Every API route is wrapped in withApi() (PLAN §4): auth (401) · Origin check (403) · body limit
-// (413) · rate limit (429, T14) · zod (400) · safe errors (500 + request id). Handlers only parse,
+// (413) · rate limit (429, T14) · zod (400) · safe errors (500 + request id) · Cache-Control: private, no-store. Handlers only parse,
 // call one service and return contract-shaped JSON. Everything is read from the Request itself, so
 // tests call a route's exported GET/POST with a constructed Request.
 import { randomUUID } from "node:crypto";
@@ -85,9 +85,9 @@ export function withApi<P = Record<string, never>>(
 ) {
   const { auth = true, maxBodyBytes = LIMITS.jsonBodyBytes } = options;
 
-  const route = async (
+  const respond = async (
     request: Request,
-    segment: Segment<P> = {},
+    segment: Segment<P>,
   ): Promise<Response> => {
     const requestId = randomUUID();
     try {
@@ -127,5 +127,17 @@ export function withApi<P = Record<string, never>>(
       return failure(error, request, requestId);
     }
   };
+  const route = async (
+    request: Request,
+    segment: Segment<P> = {},
+  ): Promise<Response> => {
+    const response = await respond(request, segment);
+    // API answers can be per user, even on routes without a session check (Better Auth's
+    // get-session), so no browser or shared cache may keep or reuse any of them, errors included,
+    // whatever the handler set.
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
+  };
+
   return Object.assign(route, { [WITH_API]: { auth } });
 }

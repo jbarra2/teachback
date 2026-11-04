@@ -279,3 +279,31 @@ The hardest bugs were tests that passed while the real sync would have done noth
 
 **What I learned:**
 `pull_request_target` runs the workflow and code from `main`, even for a fork's PR, so it's safe only when the job never checks out or runs the PR's code and no event text reaches a shell. The bigger lesson was that a secret is exposed to everyone who can change the code that runs with it: the environment rule kept the token to `main`, but anyone who can merge to `main` could still read it. Rather than add a bot account to limit what a leak could do, I kept the token off GitHub entirely and run the sync from a pinned copy on my own machine.
+
+## T13 · Courses API (#13) · Nov 3, 2026
+
+**What I built:** The four course endpoints: list and create courses, open a course with its documents, and list a course's concepts with my mastery state.
+
+- `src/lib/services/courses.ts` holds the queries. Every one is scoped to the signed-in user and lists the fields it returns, so another user's course is a 404, the same answer as a course that doesn't exist.
+- `src/lib/services/document-status.ts` decides what a document's status reads as. Anything still queued or processing 10 minutes after upload shows as FAILED, so nothing spins forever. T12 will reuse it for `GET /api/documents/{id}`.
+- `withApi()` now marks every API response `Cache-Control: private, no-store`, errors included.
+- `tests/integration/courses.int.test.ts` covers the security matrix for all four routes and checks every response against `openapi.yaml`.
+
+**Skills & tools:** Next.js 16 route handlers, Prisma 7, zod 4, Vitest integration tests on a Docker PostgreSQL test database, OpenAPI response validation, mutation testing, security and test reviews
+
+**Asked Claude for:** Build T13 from a plan with tests first, and keep the work safe across an internet outage partway through. I chose to put the cache header in `withApi` for every route, and to include the PLAN §8 evidence-quote rule I'd promised in a review of T18.
+
+**Decided / dropped:**
+
+- Set `Cache-Control` once in `withApi` rather than in each route, so routes without a session check, such as Better Auth's get-session, are covered too.
+- Shared one status helper between the course view and the document endpoint, so both report a stuck upload the same way.
+- Sorted concepts by their normalized name key, so case never decides the order, and broke ties in course and document lists by id, so the order is stable.
+- Put the integration tests in `tests/integration/`, because lint bans the database client anywhere under `src/app/`.
+- Moved `listCourseConcepts` out of T21's not-built list, since the issue gives it to T13.
+- Dropped a `now` parameter on the service and a concept tie-break after a review showed neither was used.
+
+**Hardest part, and how I solved it:**
+Proving the concept order was right. A mutation that sorted by the stored name instead of the normalized key passed every test, because the test database's English collation already ignores case, so both orders matched. I added a concept whose key sorts differently from its name, so only the key order passes, and the mutation was then caught.
+
+**What I learned:**
+A mutation no test catches can mean the test environment hides the difference, not just that a test is missing. Here the database collation made two sort orders look the same. I also learned to put a header like `Cache-Control` in the one wrapper every response passes through, so a later route can't forget it.

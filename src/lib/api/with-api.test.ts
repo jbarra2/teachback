@@ -307,6 +307,46 @@ describe("withApi: production settings", () => {
   });
 });
 
+describe("withApi: every response is private, never cached", () => {
+  const PRIVATE = "private, no-store";
+
+  it("marks a signed-in response private and not to be stored", async () => {
+    const response = await withApi(ok)(request(), noParams);
+    expect(response.headers.get("cache-control")).toBe(PRIVATE);
+  });
+
+  it("marks an error from a signed-in route the same way", async () => {
+    readSession.mockResolvedValue(null);
+    const unauthenticated = await withApi(ok)(request(), noParams);
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get("cache-control")).toBe(PRIVATE);
+    readSession.mockResolvedValue({ user: USER, setCookies: [] });
+    const failed = await withApi(() => {
+      throw new Error("boom");
+    })(request(), noParams);
+    expect(failed.status).toBe(500);
+    expect(failed.headers.get("cache-control")).toBe(PRIVATE);
+  });
+
+  it("overrides a handler that tries to make per-user data cacheable", async () => {
+    const response = await withApi(() =>
+      Response.json({}, { headers: { "Cache-Control": "public, max-age=60" } }),
+    )(request(), noParams);
+    expect(response.headers.get("cache-control")).toBe(PRIVATE);
+  });
+
+  // Routes without a session check can still answer per user (Better Auth's get-session).
+  it("marks a route that needs no session the same way, whatever it sets", async () => {
+    const plain = await withApi(ok, { auth: false })(request(), noParams);
+    expect(plain.headers.get("cache-control")).toBe(PRIVATE);
+    const own = await withApi(
+      () => new Response("x", { headers: { "Cache-Control": "max-age=60" } }),
+      { auth: false },
+    )(request(), noParams);
+    expect(own.headers.get("cache-control")).toBe(PRIVATE);
+  });
+});
+
 describe("withApi: every response", () => {
   it("carries x-request-id, on success too", async () => {
     const response = await withApi(ok)(request(), noParams);
