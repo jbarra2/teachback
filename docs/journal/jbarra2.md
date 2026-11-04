@@ -335,3 +335,29 @@ Proving the edge sort was the code's own. A mutation that sorted edges by `from`
 
 **What I learned:**
 A query plan can quietly do a job the code claims to do, so a test that relies on insertion order may never see the difference. When the database can't be made to disagree, testing the logic as a pure function is the honest fix. I also learned that a leak test needs the other user's row to be the only one: when both users had a mastery row, dropping the user filter passed or failed depending on which row came first.
+
+## T42 · Stabilize load-sensitive tooling tests (#64) · Nov 4, 2026
+
+**What I built:** More time-limit headroom for three tests that timed out when the machine was busy, while passing alone.
+
+- `tests/tooling/entry-points.test.ts`: 60 s instead of the 5 s default for the check that parses every source file, like most other tooling tests.
+- `tests/tooling/database.test.ts`: the tests that start Node or the Prisma CLI get 90 s (170 s for the one that starts two), and each child process now has its own 80 s limit, so a hung child fails its test instead of stalling the whole run. Two "stops on an unreadable .env" tests now also check the child wasn't killed.
+- `src/lib/auth.test.ts`: 60 s instead of 30 s for its cold imports.
+
+**Skills & tools:** Vitest timeout options (file, suite and test level), Node `spawnSync`, stress runs with concurrent test processes, mutation testing, code and security reviews
+
+**Asked Claude for:** Handle the open items left by T21, which became this issue; I chose to start it only after T21 was committed, then said go and asked Claude to run the manual checks.
+
+**Decided / dropped:**
+
+- Set the longer limits only where they're needed (one file, one suite, one test), not as a global default, so a real hang elsewhere still fails fast.
+- Gave each Prisma child process its own timeout, because `spawnSync` blocks the test worker and Vitest's timeout can't interrupt it.
+- Raised entry-points to 60 s instead of 30 s after the review pointed out that the issue asked for the same limit as the other tooling tests.
+- Dropped the after-change stress run: the before-change runs never failed, so a passing run afterwards would prove nothing.
+- Left the uncapped Prisma call in a shared test helper for a later tooling PR, since it's outside this issue's three tests.
+
+**Hardest part, and how I solved it:**
+I couldn't reproduce the failures: two and then three concurrent test runs all passed. So I measured each test's duration under load to see its margin, and proved with a throwaway test that a suite-level timeout overrides the file's. The review then found that my new child-process timeout could make two guard tests pass by accident: a killed child returns a null status, which passes `not.toBe(0)`. I confirmed it with a child that printed the expected error and then hung, added `expect(res.error).toBeUndefined()`, and a mutation run showed the test now fails.
+
+**What I learned:**
+`spawnSync` blocks the worker, so a test-runner timeout can only report an overrun after the fact; the child needs its own timeout. But adding a timeout for safety can change what a test accepts: an assertion that only checks "didn't succeed" also passes for a process the test itself killed. Now I check what a killed process returns before relying on that kind of assertion.

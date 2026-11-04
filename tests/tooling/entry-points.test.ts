@@ -2,8 +2,12 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { repoRoot as root } from "../helpers/temp-dirs";
+
+// The Server Actions check parses every source file with the TypeScript compiler: about 2 s alone,
+// but over the 5 s default on a loaded machine. 60 s, like most of the other tooling tests.
+vi.setConfig({ testTimeout: 60_000 });
 
 // Every HTTP entry point goes through withApi() (PLAN §4), and every one lives under src/app/api/,
 // where the security matrix (TESTING §3) covers it. Anything else Next.js would serve as code
