@@ -82,4 +82,34 @@ describe("src/app/api/auth/[...all]/route.ts", () => {
     expect(await response.json()).toEqual({ success: true });
     expect(response.headers.get("x-request-id")).toBeTruthy();
   });
+
+  // withApi marks every API answer private (T13). Sign-in and get-session are the per-user answers
+  // on a route without withApi's own session check: the header must not cost the session cookie.
+  it("keeps sign-in's session cookie and marks it and get-session private, never cached", async () => {
+    const account = { email: "grace@example.com", password: "correct-horse" };
+    await route.POST(
+      post("/sign-up/email", { name: "Grace", ...account }),
+      params,
+    );
+
+    const signIn = await route.POST(post("/sign-in/email", account), params);
+    expect(signIn.status).toBe(200);
+    expect(signIn.headers.get("cache-control")).toBe("private, no-store");
+    const session = signIn.headers
+      .getSetCookie()
+      .find((cookie) => /session_token=[^;]/.test(cookie));
+    expect(session).toBeDefined();
+
+    const getSession = await route.GET(
+      new Request(`${TEST_APP}/api/auth/get-session`, {
+        headers: { cookie: session!.split(";")[0] },
+      }),
+      params,
+    );
+    expect(getSession.status).toBe(200);
+    expect(await getSession.json()).toMatchObject({
+      user: { email: account.email },
+    });
+    expect(getSession.headers.get("cache-control")).toBe("private, no-store");
+  });
 });
