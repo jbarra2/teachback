@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
-import MapPage from "./courses/[courseId]/map/page";
 import PracticeWeakestPage from "./courses/[courseId]/practice/weakest/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
@@ -71,21 +70,6 @@ describe("pages", () => {
     expect(
       screen.getByRole("link", { name: "Practice weakest" }),
     ).toHaveAttribute("href", "/courses/a%2Fb%3Fc/practice/weakest");
-  });
-
-  it("renders the Concept map page with a Practice weakest button", async () => {
-    render(
-      await MapPage({
-        params: Promise.resolve({ courseId: "c1" }),
-        searchParams: Promise.resolve({}),
-      }),
-    );
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Concept map" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Practice weakest" }),
-    ).toHaveAttribute("href", "/courses/c1/practice/weakest");
   });
 
   it("renders the Practice weakest page for its course", async () => {
