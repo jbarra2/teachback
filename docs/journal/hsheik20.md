@@ -52,3 +52,25 @@ Containing a hostile PDF. My first time cap used `Promise.race`, which can't sto
 
 **What I learned:**
 A timer only fires when the event loop is free, and a worker thread still shares its process, so a crash or memory blow-up inside it can take the server down; real isolation needs a separate process. With file uploads, the extension alone means nothing: the content has to be checked too (magic bytes, valid encoding), and size limits go before any parsing. When I tested the extractor with my own Operating Systems lecture notes, the PDF was rejected because its pages were images rather than selectable text. That showed me the difference between text extraction and OCR, and OCR is a possible future improvement.
+
+## T18 · Evidence verification (pure function) (#18) · Nov 3, 2026
+
+**What I built:** `verifyEvidence(feedback, chunks)` in `src/lib/ai/verify-evidence.ts`, the check that every quote shown as grading evidence really appears in the cited section of the student's notes. It normalizes both sides (NFKC, lowercase, straight quotes and dashes, collapsed whitespace), drops quotes with an unknown chunk or no match, caps confidence at MEDIUM when anything is dropped, and sets LOW plus `unsupported` when nothing is left. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results.
+
+**Skills & tools:** TypeScript (generics, utility types), Unicode normalization (NFKC), zod v4, Vitest (seeded randomized tests, coverage), mutation testing by hand, Claude Code
+
+**Asked Claude for:** A plan with tests for T18, then the implementation with NFKC folding added, as long as the tests proved that quotes with genuinely different wording are still rejected. I also asked to see the results before moving on.
+
+**Decided / dropped:**
+
+- Added NFKC to the normalization in PLAN §8. It helps account for formatting differences in PDF text, like the `ﬁ` ligature and `…`, which the model writes as `fi` and `...`, and the tests check that genuinely different wording is still rejected.
+- A quote that spans two chunks is dropped, since it isn't a substring of the chunk it cites.
+- No evidence at all counts as `unsupported`, and `unsupported` is always set by the function, never taken from the model.
+- A quote must be at least three words. I first left this to T22 because the spec only says non-empty, but in review Jonathan pointed out that a word like "the" is in almost every chunk, so a manipulated answer could cite it and keep HIGH confidence. This function is the grounding check, so the minimum belongs here.
+- Left words hyphenated across line breaks as a T10/T11 text-cleanup follow-up instead of fuzzing the matching here.
+
+**Hardest part, and how I solved it:**
+Making the randomized test prove something. A "fabricated" quote built from words in the notes can accidentally be real, so each one gets an invented word, a swapped word, or a phrase from another chunk, and it's checked with a separate simple normalizer and regenerated if it's actually in the note. A mirror test makes sure 200 real quotes with random spacing and case always survive, and both use fixed seeds so a failure can be reproduced. To confirm the tests have teeth, we broke the function on purpose (ignoring the chunk id, allowing empty quotes, removing NFKC, the confidence cap or the three-word minimum), and every change made at least one test fail.
+
+**What I learned:**
+Checking that a quote "appears in the notes" sounds simple, but the result depends on how you clean up the text first. Normalization smooths over formatting differences, and it can also hide details: the security review pointed out that NFKC turns `10⁵` into `105`. A quote being in the notes doesn't automatically make it good evidence either, which is why a one- or two-word quote is now rejected. And I learned that TypeScript's `Omit` on a type with an index signature erases its known keys, so the result type has to name the important fields explicitly.
