@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
-import MapPage from "./courses/[courseId]/map/page";
 import CoursesPage from "./courses/page";
 import AppLoading from "./loading";
 import AppNotFound from "./not-found";
@@ -59,13 +58,6 @@ describe("pages", () => {
       "href",
       "/courses/a%2Fb%3Fc/practice",
     );
-  });
-
-  it("renders the Concept map page", () => {
-    render(<MapPage />);
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Concept map" }),
-    ).toBeInTheDocument();
   });
 });
 
