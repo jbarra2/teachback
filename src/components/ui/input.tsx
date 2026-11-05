@@ -1,4 +1,5 @@
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, Ref } from "react";
+import { charCount } from "./char-count";
 import { cn, focusRing } from "./cn";
 import { Field, describedBy } from "./field";
 
@@ -7,6 +8,9 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   hint?: string;
   error?: string;
+  /** Shows "used / max" under the field. Pair it with a controlled `value`. */
+  showCount?: boolean;
+  ref?: Ref<HTMLInputElement>;
 }
 
 export const controlClass =
@@ -17,13 +21,32 @@ export function Input({
   label,
   hint,
   error,
+  showCount = false,
+  maxLength,
+  value,
   className,
   ...props
 }: InputProps) {
+  const used = typeof value === "string" ? charCount(value) : 0;
+  const counter =
+    showCount && maxLength !== undefined ? (
+      <p
+        id={`${id}-count`}
+        aria-live="polite"
+        className={cn(
+          "text-xs",
+          used >= maxLength ? "text-danger" : "text-muted",
+        )}
+      >
+        {used} / {maxLength}
+      </p>
+    ) : undefined;
   return (
-    <Field id={id} label={label} hint={hint} error={error}>
+    <Field id={id} label={label} hint={hint} error={error} footer={counter}>
       <input
         id={id}
+        maxLength={maxLength}
+        value={value}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, { hint, error })}
         className={cn(controlClass, focusRing, className)}

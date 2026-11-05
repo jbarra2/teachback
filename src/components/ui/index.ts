@@ -1,6 +1,7 @@
 export { Badge, MasteryBadge, MASTERY_BADGE, type BadgeTone } from "./badge";
 export { Button, type ButtonProps } from "./button";
 export { Card } from "./card";
+export { charCount } from "./char-count";
 export { cn, focusRing } from "./cn";
 export { EmptyState } from "./empty-state";
 export { ErrorState } from "./error-state";

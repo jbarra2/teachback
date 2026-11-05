@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { EmptyState } from "@/components/ui";
+import { CourseNotes } from "@/components/notes/course-notes";
 
-// Placeholder: the course's notes and concepts arrive in T15.
 export default async function CoursePage({
   params,
 }: PageProps<"/courses/[courseId]">) {
@@ -23,10 +22,7 @@ export default async function CoursePage({
           Concept map
         </Link>
       </nav>
-      <EmptyState
-        title="No notes yet"
-        description="Upload lecture notes for this course to see its concepts here."
-      />
+      <CourseNotes courseId={courseId} />
     </section>
   );
 }

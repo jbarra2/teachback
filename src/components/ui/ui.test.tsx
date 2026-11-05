@@ -12,6 +12,7 @@ import {
   MasteryBadge,
   Spinner,
   Textarea,
+  charCount,
   cn,
 } from ".";
 
@@ -83,6 +84,49 @@ describe("Input", () => {
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(input).not.toHaveAttribute("aria-describedby");
   });
+
+  it("counts characters up to the limit", () => {
+    function Counted() {
+      const [value, setValue] = useState("");
+      return (
+        <Input
+          id="name"
+          label="Name"
+          maxLength={5}
+          showCount
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }
+    render(<Counted />);
+    const input = screen.getByLabelText("Name");
+    expect(input).toHaveAttribute("maxlength", "5");
+    expect(screen.getByText("0 / 5")).toHaveClass("text-muted");
+    fireEvent.change(input, { target: { value: "hello" } });
+    expect(screen.getByText("5 / 5")).toHaveClass("text-danger");
+  });
+
+  it("counts like the server: trimmed, with an emoji as one character", () => {
+    function Counted() {
+      const [value, setValue] = useState("");
+      return (
+        <Input
+          id="name"
+          label="Name"
+          maxLength={10}
+          showCount
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }
+    render(<Counted />);
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "  🧬 DNA  " },
+    });
+    expect(screen.getByText("5 / 10")).toBeInTheDocument();
+  });
 });
 
 describe("Textarea", () => {
@@ -109,6 +153,14 @@ describe("Textarea", () => {
     expect(screen.getByText("5 / 10")).toHaveClass("text-muted");
     fireEvent.change(box, { target: { value: "0123456789" } });
     expect(screen.getByText("10 / 10")).toHaveClass("text-danger");
+  });
+
+  it("counts like the server: trimmed, with an emoji as one character", () => {
+    render(<Counted />);
+    fireEvent.change(screen.getByLabelText("Your answer"), {
+      target: { value: "\n  🧬🧬 cells \n" },
+    });
+    expect(screen.getByText("8 / 10")).toBeInTheDocument();
   });
 
   it("shows no counter unless asked", () => {
@@ -192,5 +244,20 @@ describe("ErrorState", () => {
     render(<ErrorState onRetry={onRetry} />);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+});
+
+describe("charCount", () => {
+  it.each([
+    ["", 0],
+    ["   ", 0],
+    ["abc", 3],
+    ["  abc  ", 3],
+    ["🧬", 1],
+    // A base letter plus a combining accent: two code points, as the server counts.
+    ["e" + String.fromCodePoint(0x301), 2],
+    ["a 🧬 b", 5],
+  ])("counts %j as %i", (value, expected) => {
+    expect(charCount(value)).toBe(expected);
   });
 });

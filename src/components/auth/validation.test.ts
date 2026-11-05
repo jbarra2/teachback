@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "@/lib/schemas";
 import {
+  EMAIL_MAX,
   NAME_MAX,
   PASSWORD_MAX,
   PASSWORD_MIN,
@@ -64,6 +66,44 @@ describe("nameError", () => {
   it("allows up to the maximum after trimming", () => {
     expect(nameError(` ${"a".repeat(NAME_MAX)} `)).toBeUndefined();
     expect(nameError("a".repeat(NAME_MAX + 1))).toMatch(/at most/);
+  });
+
+  it("counts an emoji as one character, like the server", () => {
+    const dna = String.fromCodePoint(0x1f9ec);
+    expect(nameError(dna.repeat(NAME_MAX))).toBeUndefined();
+    expect(nameError(dna.repeat(NAME_MAX + 1))).toMatch(/at most/);
+  });
+});
+
+describe("limits", () => {
+  it("are the server's", () => {
+    expect({
+      PASSWORD_MIN,
+      PASSWORD_MAX,
+      NAME_MAX,
+      EMAIL_MAX,
+    }).toEqual({
+      PASSWORD_MIN: LIMITS.passwordMin,
+      PASSWORD_MAX: LIMITS.passwordMax,
+      NAME_MAX: LIMITS.userName,
+      EMAIL_MAX: LIMITS.email,
+    });
+  });
+});
+
+describe("emailError length", () => {
+  // "a…a@b.co" exactly `length` characters long.
+  const email = (length: number) => `${"a".repeat(length - 5)}@b.co`;
+
+  it("allows the longest address, even with padding", () => {
+    expect(email(EMAIL_MAX)).toHaveLength(EMAIL_MAX);
+    expect(emailError(`  ${email(EMAIL_MAX)}  `)).toBeUndefined();
+  });
+
+  it("refuses one character more", () => {
+    expect(emailError(email(EMAIL_MAX + 1))).toBe(
+      `Use at most ${EMAIL_MAX} characters.`,
+    );
   });
 });
 

@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { cn, focusRing } from "@/components/ui";
+import { NavAuth, navLink } from "./nav-auth";
 
-const link = cn(
-  "rounded-md px-3 py-2 text-sm font-medium hover:bg-surface",
-  focusRing,
-);
-
-// Signed-in state arrives with auth (T06); until then both sets of links show.
 export function TopNav() {
   return (
     <header className="border-b border-border">
@@ -22,26 +17,11 @@ export function TopNav() {
         </Link>
         <ul className="flex items-center gap-1">
           <li>
-            <Link href="/courses" className={link}>
+            <Link href="/courses" className={navLink}>
               Courses
             </Link>
           </li>
-          <li>
-            <Link href="/login" className={link}>
-              Log in
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/signup"
-              className={cn(
-                link,
-                "bg-primary text-primary-foreground hover:bg-primary hover:opacity-90",
-              )}
-            >
-              Sign up
-            </Link>
-          </li>
+          <NavAuth />
         </ul>
       </nav>
     </header>
