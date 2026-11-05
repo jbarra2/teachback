@@ -92,22 +92,23 @@ Aborting a request doesn't stop code that is already waiting on it: after every 
 
 <!-- needs-review -->
 
-**What I built:** The full feedback view a student sees after answering a question: the verdict, a confidence badge, the mastery chip, what they got right and what's missing, and the quotes from their notes with each one's source label. It also shows a "Couldn't verify this against your notes" banner when the evidence check failed or confidence is LOW, and a "Goes beyond your notes" note when the answer used material the notes don't cover. It replaces T16's short summary in `src/components/practice/feedback-display.tsx`.
+**What I built:** The full feedback view a student sees after answering a question, in `src/components/practice/feedback-display.tsx`. It shows the verdict, a confidence badge, the mastery chip, what they got right and what's missing, and the quotes from their notes with each one's source label. It adds a "Couldn't verify this against your notes" banner when the evidence check failed or confidence is LOW, and a "Goes beyond your notes" note when the answer used material the notes don't cover. It replaces T16's short feedback summary. A new test also scans every file under `src/` for raw-HTML rendering.
 
-**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`)
+**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`), git branching and merging, the GitHub CLI
 
-**Asked Claude for:** To pick up T23, plan it, and build the feedback display with its tests once I said go.
+**Asked Claude for:** To find my next task and pick up T23, then to test it, run a security review and ship it. When the work turned out to already exist on an unpushed branch, I had Claude verify that branch instead of rebuilding it.
 
 **Decided / dropped:**
 
 - Put the banner rules in a small pure function (`feedbackNotices`) so every combination of `unsupported`, confidence and `outsideNotes` could be tested as a table.
 - Made the confidence badge say the level in words ("Confidence: Low") so it doesn't rely on color alone.
 - Tested "the answer renders literally" through the practice session, where the answer is already shown, instead of adding a second "Your answer" block to the feedback card.
-- Added a test that scans every source file under `src/` for `dangerouslySetInnerHTML`, as a backstop for the lint rule. The forbidden string is built from two parts so the test file doesn't flag itself.
-- Used `aria-label` on the quotes list instead of a hard-coded `id`, which would clash if two feedback cards were ever on the page.
+- Added a test that scans `src/` for `dangerouslySetInnerHTML` as a backstop for the lint rule, building the forbidden string from two parts so the test doesn't flag itself.
+- Kept my original branch and dropped the empty duplicate branch that `gh issue develop` created, so the PR comes from the branch that has the work.
+- Left the failing PDF ingest tests to the AI track's owner instead of fixing them here, because that code isn't in my track and isn't changed by this branch.
 
 **Hardest part, and how I solved it:**
-The full test run failed 14 tests, none in files I had changed, and took almost an hour because the machine was overloaded. I reran just the failing files: the frontend ones all passed alone, so they had been timeouts, but five PDF tests from the ingest code still failed. Those turned out to be Windows-only: the code builds a path with backslashes while the test expects forward slashes, which is why CI on Linux stays green. I left them to the AI track's owner instead of fixing them on my branch.
+The code was finished, but nothing would push: the pre-push hook runs the fast checks, and five PDF-extraction tests failed every time on my Windows machine. I reran just those two test files to rule out a slow machine, then compared `src/lib/ingest` with `main` and found it identical, so my branch didn't cause it. The failures are Windows-specific: the child process exits with no `SIGABRT`/`SIGKILL` signal code, and a path check expects forward slashes. I reported it to the owner instead of weakening the tests.
 
 **What I learned:**
-To prove a component is safe from XSS, I put an `<img onerror>` and a `<script>` payload into every text field, then checked two things: the text shows up literally, and the rendered output contains no `img` or `script` element. React escapes text by default, so the test mostly guards against someone later adding raw HTML. I also learned to rerun failures in isolation before trusting them, because a slow machine can make unrelated tests fail.
+Before blaming my own change for a red test run, I check whether the failing code differs from `main` at all; that turned a confusing failure into a clear handoff. I also learned that `gh issue develop` makes a new branch even when one already exists for the issue, so I should look for existing branches first.
