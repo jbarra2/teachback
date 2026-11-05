@@ -87,3 +87,27 @@ Proving the "ignore a late answer" guard in the course page. My first test passe
 
 **What I learned:**
 Aborting a request doesn't stop code that is already waiting on it: after every `await` in an effect, check whether it was cancelled before setting state. And a regression test only counts once you've seen it fail without the fix.
+
+## T23 · Feedback display UI (#23) · Nov 5, 2026
+
+<!-- needs-review -->
+
+**What I built:** The full feedback view a student sees after answering a question: the verdict, a confidence badge, the mastery chip, what they got right and what's missing, and the quotes from their notes with each one's source label. It also shows a "Couldn't verify this against your notes" banner when the evidence check failed or confidence is LOW, and a "Goes beyond your notes" note when the answer used material the notes don't cover. It replaces T16's short summary in `src/components/practice/feedback-display.tsx`.
+
+**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`)
+
+**Asked Claude for:** To pick up T23, plan it, and build the feedback display with its tests once I said go.
+
+**Decided / dropped:**
+
+- Put the banner rules in a small pure function (`feedbackNotices`) so every combination of `unsupported`, confidence and `outsideNotes` could be tested as a table.
+- Made the confidence badge say the level in words ("Confidence: Low") so it doesn't rely on color alone.
+- Tested "the answer renders literally" through the practice session, where the answer is already shown, instead of adding a second "Your answer" block to the feedback card.
+- Added a test that scans every source file under `src/` for `dangerouslySetInnerHTML`, as a backstop for the lint rule. The forbidden string is built from two parts so the test file doesn't flag itself.
+- Used `aria-label` on the quotes list instead of a hard-coded `id`, which would clash if two feedback cards were ever on the page.
+
+**Hardest part, and how I solved it:**
+The full test run failed 14 tests, none in files I had changed, and took almost an hour because the machine was overloaded. I reran just the failing files: the frontend ones all passed alone, so they had been timeouts, but five PDF tests from the ingest code still failed. Those turned out to be Windows-only: the code builds a path with backslashes while the test expects forward slashes, which is why CI on Linux stays green. I left them to the AI track's owner instead of fixing them on my branch.
+
+**What I learned:**
+To prove a component is safe from XSS, I put an `<img onerror>` and a `<script>` payload into every text field, then checked two things: the text shows up literally, and the rendered output contains no `img` or `script` element. React escapes text by default, so the test mostly guards against someone later adding raw HTML. I also learned to rerun failures in isolation before trusting them, because a slow machine can make unrelated tests fail.
