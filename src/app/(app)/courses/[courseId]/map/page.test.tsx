@@ -1,0 +1,23 @@
+// The map page passes its course to the map. The map itself is tested in src/components/map.
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import MapPage from "./page";
+
+vi.mock("@/components/map/concept-map", () => ({
+  ConceptMap: ({ courseId }: { courseId: string }) => <p>map for {courseId}</p>,
+}));
+
+describe("MapPage", () => {
+  it("renders the map for the course in the URL", async () => {
+    render(
+      await MapPage({
+        params: Promise.resolve({ courseId: "c1" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Concept map" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("map for c1")).toBeInTheDocument();
+  });
+});
