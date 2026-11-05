@@ -94,6 +94,32 @@ function expectAllChildrenGone() {
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
 }
 
+interface Ending {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+/** Resolves with how `child` ended, from its "exit" event. */
+const ending = (child: ChildProcess) =>
+  new Promise<Ending>((resolve) =>
+    child.once("exit", (code, signal) => resolve({ code, signal })),
+  );
+
+/**
+ * The child was ended by `signal`. Windows has no POSIX signals: Node reports no signal and a
+ * non-zero exit code for a killed or aborted process, so there only that is checked.
+ */
+function expectEndedBy(
+  { code, signal: actual }: Ending,
+  signal: NodeJS.Signals,
+) {
+  if (process.platform === "win32") {
+    expect(actual).toBeNull();
+    expect(code).not.toBeNull();
+    expect(code).not.toBe(0);
+  } else expect({ code, signal: actual }).toEqual({ code: null, signal });
+}
+
 /** A PDF from raw objects: object n is `objects[n - 1]`; object 1 must be the catalog. */
 function buildPdf(objects: (string | Buffer)[]): Uint8Array {
   const parts: Buffer[] = [Buffer.from("%PDF-1.4\n")];
@@ -268,20 +294,24 @@ describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
       ).rejects.toMatchObject({ status: 422, reason: "UNREADABLE_PDF" });
       rejected = performance.now();
       expectAllChildrenGone();
-      // V8's fatal error aborted the child, not the time cap or the watchdog.
-      expect(forked[0].signalCode).toBe("SIGABRT");
+      // V8's fatal error aborted the child, not the time cap or the watchdog. Windows reports only
+      // a non-zero exit code, which can't tell an abort from a kill, so there only that is checked.
+      expectEndedBy(
+        { code: forked[0].exitCode, signal: forked[0].signalCode },
+        "SIGABRT",
+      );
       await expect(
         extractText(cellBiology(), "cell-biology.pdf"),
       ).resolves.toContain("Selective permeability");
       recovered = performance.now();
     } finally {
-      // Durations, the signal and the CPU count only, never any PDF text. Linux writes a crash
-      // dump before it reports the exit, so a dump shows up as an abort that's slow compared
+      // Durations, how the child ended and the CPU count only, never any PDF text. Linux writes a
+      // crash dump before it reports the exit, so a dump shows up as an abort that's slow compared
       // with the normal parse after it; slow cleanup shows up after the exit.
       const child = timings.get(forked[0]);
       await annotate(
         [
-          `abort: ${ms(child?.started, child?.exited)} from fork to exit (${String(forked[0]?.signalCode)})`,
+          `abort: ${ms(child?.started, child?.exited)} from fork to exit (signal ${String(forked[0]?.signalCode)}, code ${String(forked[0]?.exitCode)})`,
           `IPC closed ${ms(child?.exited, child?.closed)} after exit`,
           `rejected ${ms(child?.closed, rejected)} after close`,
           `next PDF parsed in ${ms(rejected, recovered)}`,
@@ -338,21 +368,21 @@ describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
     );
     strays.push(child);
     const started = performance.now();
-    const exited = new Promise<NodeJS.Signals | null>((resolve) =>
-      child.once("exit", (_code, signal) => resolve(signal)),
-    );
+    const exited = ending(child);
     const answered = vi.fn();
     child.once("message", answered);
     child.send(slowRequest());
 
-    await expect(exited).resolves.toBe("SIGKILL");
+    expectEndedBy(await exited, "SIGKILL");
     const took = performance.now() - started;
     expect(took).toBeGreaterThanOrEqual(1000);
     expect(took).toBeLessThan(8000);
     expect(answered).not.toHaveBeenCalled();
   });
 
-  it("doesn't outlive a server that dies while it's parsing", async () => {
+  it("doesn't outlive a server that dies while it's parsing", async ({
+    annotate,
+  }) => {
     const server = spawn(process.execPath, ["-e", STAND_IN_SERVER], {
       env: { NODE_ENV: "test" },
       serialization: "advanced",
@@ -376,7 +406,13 @@ describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
     const serverGone = new Promise((resolve) => server.once("exit", resolve));
     server.kill("SIGKILL");
     await serverGone;
-    expect(isAlive(pid)).toBe(true);
+    // On Linux and macOS the child outlives its server, so only its own deadline can end it, which
+    // is the case this test is for. Whether Windows ends it along with the server isn't confirmed,
+    // so there the test records what happened and checks only that the child is gone in time.
+    const outlivedServer = isAlive(pid);
+    if (process.platform === "win32")
+      await annotate(`child alive after server exit: ${outlivedServer}`);
+    else expect(outlivedServer).toBe(true);
 
     // Without its own deadline, the child would parse for about a minute more.
     const gone = await timeUntilGone(pid, 8000);
@@ -392,13 +428,11 @@ describe("PDF parsing in a child process", { timeout: 20_000 }, () => {
       childOptions,
     );
     strays.push(child);
-    const exited = new Promise<NodeJS.Signals | null>((resolve) =>
-      child.once("exit", (_code, signal) => resolve(signal)),
-    );
+    const exited = ending(child);
     const started = performance.now();
     child.send({ ...slowRequest(), deadlineMs: Number.NaN });
 
-    await expect(exited).resolves.toBe("SIGKILL");
+    expectEndedBy(await exited, "SIGKILL");
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
