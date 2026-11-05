@@ -46,6 +46,11 @@ const REASONS = {
     message: (l: IngestLimits) =>
       `These notes are longer than the ${l.maxNoteChars.toLocaleString("en-US")}-character limit. Split them into smaller parts.`,
   },
+  TOO_MANY_CHUNKS: {
+    code: "PAYLOAD_TOO_LARGE",
+    message: () =>
+      "These notes have too many separate sections to process. Split them into smaller files and upload each one.",
+  },
   NO_TEXT: {
     code: "UNREADABLE_FILE",
     message: () =>
@@ -66,6 +71,14 @@ const REASONS = {
   { code: IngestErrorCode; message: (limits: IngestLimits) => string }
 >;
 export type IngestErrorReason = keyof typeof REASONS;
+/** Reasons whose message names no limit, so they can be thrown without the limits. */
+type FixedMessageReason = {
+  [R in IngestErrorReason]: Parameters<
+    (typeof REASONS)[R]["message"]
+  > extends []
+    ? R
+    : never;
+}[IngestErrorReason];
 
 /** Sent as `Retry-After` with PDF_BUSY: about one PDF parse. */
 export const PDF_BUSY_RETRY_AFTER_SECONDS = 15;
@@ -77,9 +90,12 @@ export class IngestError extends Error {
   /** Set for RATE_LIMITED, for the route's `Retry-After` header. */
   readonly retryAfterSeconds?: number;
 
-  constructor(reason: IngestErrorReason, limits: IngestLimits) {
+  constructor(reason: FixedMessageReason);
+  constructor(reason: IngestErrorReason, limits: IngestLimits);
+  constructor(reason: IngestErrorReason, limits?: IngestLimits) {
     const { code, message } = REASONS[reason];
-    super(message(limits));
+    // The overloads leave out `limits` only for a message that takes none.
+    super(limits === undefined ? (message as () => string)() : message(limits));
     this.name = "IngestError";
     this.code = code;
     this.status = INGEST_ERROR_STATUS[code];
