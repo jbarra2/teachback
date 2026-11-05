@@ -87,3 +87,27 @@ Proving the "ignore a late answer" guard in the course page. My first test passe
 
 **What I learned:**
 Aborting a request doesn't stop code that is already waiting on it: after every `await` in an effect, check whether it was cancelled before setting state. And a regression test only counts once you've seen it fail without the fix.
+
+## T26 · Practice weakest flow (#26) · Nov 5, 2026
+
+<!-- needs-review -->
+
+**What I built:** A "Practice weakest" button on the course page and the concept map that opens `/courses/[id]/practice/weakest`. There, `weakest-practice.tsx` asks the API for the concept I'm weakest at, shows its name and mastery state, and runs the usual question → answer → feedback loop; "Next concept" picks the next weakest one. It handles a course with nothing to practise, a rate limit (with Try again), a missing course, and leaving the page mid-request.
+
+**Skills & tools:** Next.js App Router (async `params`, generated route types), React state and effects, `AbortController`, openapi-fetch, Vitest, Testing Library
+
+**Asked Claude for:** To plan and build T26 right after T23, while T23 waited on a fix to another track's tests.
+
+**Decided / dropped:**
+
+- Reused the existing `PracticeSession` and gave it an optional `onNext`, instead of writing a second practice loop. Without `onNext` the normal practice page behaves exactly as before.
+- Keyed each session by concept and round, so getting the same concept twice still starts a fresh question and an empty answer box.
+- Made the button a link, so it works before any JavaScript loads and matches the other course links.
+- Made the mock next-concept endpoint move through the concepts, so the loop visibly moves on in dev instead of repeating one concept.
+- Added the button to the map page knowing T25 was rewriting that page, and accepted a small merge conflict over waiting for T25.
+
+**Hardest part, and how I solved it:**
+Adding a new page broke the typecheck: `PageProps<"/courses/[courseId]/practice/weakest">` was rejected because Next's generated route types didn't know the route yet. Running `next typegen` regenerated them. The page tests then also had to pass `searchParams`, since `PageProps` requires it even when the page doesn't use it.
+
+**What I learned:**
+Changing a component's `key` is the simplest way to reset all of its state, which is what moving to the next concept needs. I also learned to guard "next" actions against double clicks by ignoring a click while a request is already loading, and to cancel requests on unmount with an `AbortController` so a late response can't update a page that's gone.

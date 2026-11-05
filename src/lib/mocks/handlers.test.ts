@@ -133,6 +133,21 @@ describe("course data mocks", () => {
     ).toEqual(nextConcept);
   });
 
+  it("moves the next concept on each call, then wraps around", async () => {
+    const { api } = mockedApi();
+    const params = { params: { path: { id: COURSE_ID } } };
+    const picks = [];
+    for (let i = 0; i <= concepts.length; i++)
+      picks.push(
+        await unwrap(api.GET("/api/courses/{id}/next-concept", params)),
+      );
+    expect(picks[0]).toEqual(nextConcept);
+    expect(new Set(picks.map((pick) => pick?.conceptId)).size).toBe(
+      concepts.length,
+    );
+    expect(picks[concepts.length]).toEqual(nextConcept);
+  });
+
   it("returns empty data for a course without notes", async () => {
     const { api } = mockedApi();
     const params = { params: { path: { id: COURSE_2_ID } } };
