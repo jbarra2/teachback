@@ -16,7 +16,7 @@ describe("apiDocsEnabled", () => {
     expect(apiDocsEnabled()).toBe(true);
   });
 
-  // A production default must fail closed (DEPLOY.md: false unless demoing).
+  // The default must fail closed: the docs stay off unless API_DOCS_ENABLED is exactly "true".
   it.each([
     undefined,
     "",
