@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ApiError } from "./errors";
+import type { SessionUser } from "./session";
 import type { ApiContext } from "./with-api";
 
 const readSession = vi.fn();
@@ -28,7 +29,11 @@ function request(
 const ok = () => Response.json({ ok: true });
 /** A handler spy that records the context withApi passed it. */
 const spyHandler = () =>
-  vi.fn<(context: ApiContext<Record<string, string>>) => Response>(ok);
+  vi.fn<
+    (
+      context: ApiContext<Record<string, string>, SessionUser | null>,
+    ) => Response
+  >(ok);
 /** The context of the handler's first call. */
 function contextOf(handler: ReturnType<typeof spyHandler>) {
   const call = handler.mock.calls[0];

@@ -388,3 +388,28 @@ Finding every place that assumed a deployment. It wasn't only the plan: the issu
 
 **What I learned:**
 Cutting scope is a change like any other: the plan, the task list and the tracker all have to agree, or someone keeps building toward a goal that's gone. Saying what replaces the cut work, a README someone can follow on a fresh clone, makes the end of the project clearer than deleting a line.
+
+## T43 · Non-null session user in withApi handlers (#65) · Nov 6, 2026
+
+**What I built:** `withApi` now types the signed-in user from the `auth` option, so handlers on routes that need a session no longer write `user!.id`.
+
+- `src/lib/api/with-api.ts`: two overloads. The default (or `auth: true`) gives handlers a `SessionUser`. `auth: false`, or an `auth` only known as a boolean, gives `SessionUser | null`. `ApiContext` takes the user type as a second parameter, with `SessionUser` as its default. The runtime code is unchanged: with no session the request still gets a 401 before the handler runs.
+- `src/lib/api/with-api.types.test.ts`: a type-level test that fails `npm run typecheck` if `user` has the wrong type. It also checks that a handler needing a user is refused on a route with `auth: false` or a plain boolean.
+- The five courses, map and next-concept routes from T13 and T21 drop their `user!`. `auth-route.ts` and `with-api.test.ts` now say outright that their user may be null.
+
+**Skills & tools:** TypeScript function overloads, Vitest `expectTypeOf` type tests, mutation testing on types, live HTTP checks against the test database, code and security reviews
+
+**Asked Claude for:** Build T43 with tests first. Then I held it back until the Windows test fix (T44) merged, and asked Claude to finish it: merge `main`, verify, run `/security-review` and open the PR.
+
+**Decided / dropped:**
+
+- Keyed the overloads on the existing `auth` option, so no route had to change how it calls `withApi`.
+- Kept the one cast inside `withApi` itself, type-only and commented, so the routes need none.
+- Dropped a third overload after a mutation run showed that removing it broke no test: it was redundant.
+- Waited to push until T44 merged rather than fixing T10's Windows tests myself, since those files belong to the AI track.
+
+**Hardest part, and how I solved it:**
+Proving the types were really checked. A type test that only checks the happy path passes even when the overloads are too loose, so I added a check that a handler needing a user is refused with `auth: false`. Then I paired it with the same check on `auth: true`, which must pass, so the refusals couldn't be vacuous. To mutation-test types I had to wrap `tsc` in a script that fails only on errors in the type-test file, because the mutation tool treats any type error as a broken build.
+
+**What I learned:**
+Overloads are a clean way to make one option change a handler's types, but a test has to check what they refuse as well as what they accept. Running mutations on the overloads themselves showed one of them did nothing, which a review alone wouldn't have caught.
