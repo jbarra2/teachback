@@ -639,22 +639,6 @@
       "refs": "PLAN §1"
     },
     {
-      "id": "T31",
-      "title": "Deploy to Vercel + Neon (stretch)",
-      "track": "lead",
-      "milestone": "M4",
-      "date": "Fri 11/6 – Sat 11/7",
-      "blockedBy": ["T28"],
-      "critical": false,
-      "stretch": true,
-      "goal": "A free live URL, if time allows. Not required for submission.",
-      "acceptance": [
-        "Follow `docs/DEPLOY.md`. The smoke test passes on the live URL, and the security headers are present.",
-        "Live URL in the README. If this takes more than about 2 hours, drop it."
-      ],
-      "refs": "docs/DEPLOY.md"
-    },
-    {
       "id": "T32",
       "title": "Bug bash: smoke + abuse testing",
       "track": "lead",
@@ -684,14 +668,16 @@
         "The README covers:",
         "- what it is, features and screenshots",
         "- the stack and architecture (PLAN §4)",
-        "- setup (`npm run setup`) and the demo accounts",
+        "- local setup, step by step: prerequisites (Node 24+, npm 11.11 or later but below 12, Docker Desktop with WSL 2 on Windows, git), clone, `npm run setup` (what it creates and the ports it uses), `npm run dev`, and the demo accounts",
+        "- running with the fake AI (no key needed) or with real Claude (`AI_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`, checked with `npm run ai:ping`)",
+        "- stopping and restarting the databases without losing data, and fixes for common setup problems (Docker not running, a port already in use)",
         "- how to run every test suite",
         "- the security measures (TESTING §8 summary)",
         "- how grounding and confidence work",
         "- API docs (`/api/docs`)",
-        "- a Team section (who did what, from `docs/journal/`), known limitations, and the live URL if T31 shipped",
+        "- a Team section (who did what, from `docs/journal/`) and known limitations",
         "Every teammate has read their journal and cleared the `<!-- needs-review -->` markers (`git grep -n needs-review docs/journal` prints nothing).",
-        "Fresh-clone test: in an empty folder, `npm run setup` then `npm run verify` both pass."
+        "Fresh-clone test on Windows and on macOS: in an empty folder, following only the README, `npm run setup`, `npm run dev` and `npm run verify` all work."
       ],
       "refs": "PLAN §4; TESTING §8; docs/JOURNAL.md"
     },
@@ -708,7 +694,7 @@
         "Open the Canvas assignment and copy its requirements and rubric into this issue as a checklist; tick each one off.",
         "Final check on a fresh clone: `npm run setup` and `npm run verify` pass; `ci-ok` and CodeQL are green on `main`.",
         "Tag the release (`git tag v1.0.0 && git push origin v1.0.0`) and create a GitHub Release with a short summary: features, how to run it, known limitations.",
-        "Repo is public; the README is final (demo accounts, live URL if T31 shipped).",
+        "Repo is public; the README is final (local setup and demo accounts).",
         "Submit on Canvas before the deadline (repo URL + release link). Post a screenshot of the submission confirmation in the group chat."
       ],
       "refs": "PLAN §11"
