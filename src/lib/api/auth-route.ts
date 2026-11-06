@@ -9,6 +9,7 @@ import { z } from "zod";
 import { CLIENT_IP_HEADER, readAuthEnv } from "@/lib/auth-env";
 import { SignInBody, SignUpBody } from "@/lib/schemas";
 import { ApiError } from "./errors";
+import type { SessionUser } from "./session";
 import { withApi, type ApiContext } from "./with-api";
 
 const BASE_PATH = "/api/auth";
@@ -86,7 +87,7 @@ async function cleanResponse(
 }
 
 async function checkedBody(
-  { json }: ApiContext<unknown>,
+  { json }: ApiContext<unknown, SessionUser | null>,
   schema: z.ZodType,
 ): Promise<unknown> {
   // Sign-out may come with no body at all; the others need one.
@@ -95,7 +96,9 @@ async function checkedBody(
 }
 
 export function createAuthRoute(auth: AuthHandler) {
-  async function handle(context: ApiContext<unknown>): Promise<Response> {
+  async function handle(
+    context: ApiContext<unknown, SessionUser | null>,
+  ): Promise<Response> {
     const { request } = context;
     const url = new URL(request.url);
     if (!url.pathname.startsWith(`${BASE_PATH}/`))

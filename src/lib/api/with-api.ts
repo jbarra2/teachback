@@ -13,12 +13,17 @@ import { ApiError, errorResponse, validationError } from "./errors";
 import { isCrossSiteRequest } from "./origin";
 import { readSession, type SessionUser } from "./session";
 
-export interface ApiContext<P> {
+/**
+ * What a handler gets. `U` is the user's type: withApi picks `SessionUser` for routes that need a
+ * session (the default) and `SessionUser | null` for `auth: false`, or when `auth` is only known
+ * as a boolean.
+ */
+export interface ApiContext<P, U extends SessionUser | null = SessionUser> {
   request: Request;
   params: P;
   requestId: string;
-  /** The signed-in user; null only on routes with `auth: false`. */
-  user: SessionUser | null;
+  /** The signed-in user. Null only on routes with `auth: false`. */
+  user: U;
   /**
    * The body as JSON, within the route's size limit (Content-Type must be application/json).
    * With `optional`, an empty body (Next gives every POST a stream) is `undefined` instead of a 400.
@@ -35,7 +40,9 @@ export interface WithApiOptions {
   maxBodyBytes?: number;
 }
 
-type Handler<P> = (context: ApiContext<P>) => Promise<Response> | Response;
+type Handler<P, U extends SessionUser | null> = (
+  context: ApiContext<P, U>,
+) => Promise<Response> | Response;
 type Segment<P> = { params?: Promise<P> };
 
 /** A copy with headers we can set: Response.redirect() and fetched responses have immutable ones. */
@@ -80,11 +87,30 @@ export function isWithApiHandler(value: unknown): boolean {
   return withApiOptions(value) !== null;
 }
 
+type ApiRoute<P> = ((
+  request: Request,
+  segment?: Segment<P>,
+) => Promise<Response>) & { [WITH_API]: { auth: boolean } };
+
+/** Routes that need a session (the default): withApi answers 401 before the handler runs. */
 export function withApi<P = Record<string, never>>(
-  handler: Handler<P>,
+  handler: Handler<P, SessionUser>,
+  options?: WithApiOptions & { auth?: true },
+): ApiRoute<P>;
+/** `auth: false`, or `auth` only known as a boolean: the handler must handle a null user. */
+export function withApi<P = Record<string, never>>(
+  handler: Handler<P, SessionUser | null>,
+  options: WithApiOptions,
+): ApiRoute<P>;
+export function withApi<P>(
+  handler: Handler<P, SessionUser> | Handler<P, SessionUser | null>,
   options: WithApiOptions = {},
-) {
+): ApiRoute<P> {
   const { auth = true, maxBodyBytes = LIMITS.jsonBodyBytes } = options;
+  // The overloads tie the handler's user type to `auth`, which TypeScript can't follow in here.
+  // A handler typed for a non-null user only comes with auth on, and then a missing session has
+  // already thrown 401 below, so it never gets null.
+  const run = handler as Handler<P, SessionUser | null>;
 
   const respond = async (
     request: Request,
@@ -111,7 +137,7 @@ export function withApi<P = Record<string, never>>(
 
       const params = (await segment.params) ?? ({} as P);
       const response = mutable(
-        await handler({
+        await run({
           request,
           params,
           requestId,
