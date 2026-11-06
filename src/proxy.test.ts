@@ -126,6 +126,107 @@ describe("proxy: failures", () => {
   });
 });
 
+// T14: the nonce CSP and security headers on every page response (PLAN §4).
+describe("proxy: security headers", () => {
+  /** The CSP a response sends, and the one Next reads during rendering to find the nonce. */
+  const sentCsp = (response: Response) =>
+    response.headers.get("content-security-policy") ?? "";
+  const renderCsp = (response: Response) =>
+    response.headers.get("x-middleware-request-content-security-policy") ?? "";
+  const nonceOf = (csp: string) => /'nonce-([^']+)'/.exec(csp)?.[1];
+
+  const visits: [string, () => Promise<Response>][] = [
+    ["the home page", () => visit("/")],
+    ["/login, signed out", () => visit("/login")],
+    [
+      "/login, signed in (redirect)",
+      () => {
+        readSession.mockResolvedValue(SESSION);
+        return visit("/login");
+      },
+    ],
+    ["an app page, signed out (redirect)", () => visit("/courses")],
+    [
+      "an app page, signed in",
+      () => {
+        readSession.mockResolvedValue(SESSION);
+        return visit("/courses");
+      },
+    ],
+  ];
+
+  it.each(visits)(
+    "%s gets a nonce CSP and the security headers",
+    async (_name, go) => {
+      const response = await go();
+      const csp = sentCsp(response);
+      expect(csp).toMatch(
+        /script-src 'self' 'nonce-[A-Za-z0-9+/=]+' 'strict-dynamic'/,
+      );
+      expect(csp).toMatch(/frame-ancestors 'none'/);
+      expect(csp).toMatch(/object-src 'none'/);
+      expect(csp).toMatch(/base-uri 'self'/);
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("referrer-policy")).toBe(
+        "strict-origin-when-cross-origin",
+      );
+      expect(response.headers.get("permissions-policy")).toBeTruthy();
+    },
+  );
+
+  it.each(visits.filter(([name]) => !name.includes("redirect")))(
+    "%s hands Next the same nonce it sends, so Next can tag its scripts",
+    async (_name, go) => {
+      const response = await go();
+      const nonce = nonceOf(sentCsp(response));
+      expect(nonce).toBeTruthy();
+      expect(renderCsp(response)).toBe(sentCsp(response));
+      expect(response.headers.get("x-middleware-request-x-nonce")).toBe(nonce);
+    },
+  );
+
+  it("uses a new nonce for every request", async () => {
+    const nonces = new Set<string | undefined>();
+    for (let i = 0; i < 5; i++) nonces.add(nonceOf(sentCsp(await visit("/"))));
+    expect(nonces.size).toBe(5);
+  });
+
+  it("sends HSTS only in production", async () => {
+    expect((await visit("/")).headers.has("strict-transport-security")).toBe(
+      false,
+    );
+    vi.stubEnv("NODE_ENV", "production");
+    expect((await visit("/")).headers.get("strict-transport-security")).toMatch(
+      /max-age=\d+/,
+    );
+  });
+
+  it("marks a response that refreshes the session cookie private, so no cache stores it", async () => {
+    readSession.mockResolvedValue({
+      ...SESSION,
+      setCookies: ["better-auth.session_token=new; Path=/; HttpOnly"],
+    });
+    const response = await visit("/courses");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("a client can't set the nonce Next renders with", async () => {
+    const response = await proxy(
+      new NextRequest(`${APP}/`, {
+        headers: {
+          "x-nonce": "attacker",
+          "content-security-policy": "script-src * 'unsafe-inline'",
+        },
+      }),
+    );
+    expect(response.headers.get("x-middleware-request-x-nonce")).not.toBe(
+      "attacker",
+    );
+    expect(renderCsp(response)).toBe(sentCsp(response));
+    expect(renderCsp(response)).not.toContain("script-src *");
+  });
+});
+
 describe("proxy: which requests it sees (config.matcher)", () => {
   it.each(["/", "/login", "/signup", "/courses", "/courses/c1/map"])(
     "runs on page %s",

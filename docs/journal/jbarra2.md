@@ -413,3 +413,30 @@ Proving the types were really checked. A type test that only checks the happy pa
 
 **What I learned:**
 Overloads are a clean way to make one option change a handler's types, but a test has to check what they refuse as well as what they accept. Running mutations on the overloads themselves showed one of them did nothing, which a review alone wouldn't have caught.
+
+## T14 · Security baseline: rate limiting, CSP/headers, safe logging, health check (#14) · Nov 6, 2026
+
+**What I built:** The app's security baseline: rate limits, security headers with a nonce CSP, log redaction and a health check.
+
+- `src/lib/rate-limit.ts`: fixed-window limits counted in PostgreSQL with one atomic upsert per window. AI requests have per-user minute and day limits plus a global daily cap; uploads have an hourly limit. `withApi({ rateLimit })` answers 429 with `Retry-After`, and fails closed when it can't count.
+- `src/lib/api/security-headers.ts`, `src/proxy.ts`, `next.config.ts`: nosniff, referrer and permissions policies, frame denial and production-only HSTS on every response; a per-request nonce CSP on pages; a locked-down CSP on API responses; and a CSP for the API docs that allows only the pinned Scalar bundle.
+- `src/lib/log.ts`: redaction by field name and by what secrets look like, and note or answer text is never written.
+- `GET /api/health`: `{ status, db }` with a 2-second database timeout.
+- The route coverage test now checks each route's rate limit against the spec's `x-rate-limit`.
+
+**Skills & tools:** Content Security Policy with nonces and `'strict-dynamic'`, Next.js proxy and dynamic rendering, PostgreSQL `INSERT … ON CONFLICT` for atomic counters, Vitest fake timers and module mocks, mutation testing, a headless-browser walk, independent security and test reviews
+
+**Asked Claude for:** Start T14 before T12 merged, since only the upload rate-limit test depends on it. I granted a one-line exception in the root layout and handed the upload S6 test to T12. Then I asked Claude to finish it on its own, keep an eye on teammates' updates, and notify me when it needed a decision.
+
+**Decided / dropped:**
+
+- Counted each window only when the earlier ones allowed the request, so a user spamming past their own limit can't use up the global AI cap for everyone.
+- Rendered every page per request (`await connection()` in the root layout). Prerendered pages have no nonce, and a browser walk showed all their scripts blocked.
+- Allowed `'unsafe-inline'` for styles only, because React and the concept map set style attributes; scripts stay nonce-only.
+- Dropped a CSP for unknown `/api` paths in `next.config.ts`: a config header wins over a route's own, so it would have replaced the docs page's CSP.
+
+**Hardest part, and how I solved it:**
+A random bug in the docs page. The live check failed on `/api/docs` once and then passed. The page's integrity check refuses any outside URL, and a base64 nonce can contain `//`, which looks like the start of a URL, so roughly one request in 200 got a 500. I forced such a nonce in a test to reproduce it, then left the response's own nonce out of the scan. A reviewer then showed my first version of the test could pass without forcing the nonce, so I switched to a module mock and proved the test fails without the fix.
+
+**What I learned:**
+A CSP nonce only works if every page is rendered per request; a statically built page silently loses all its scripts, which unit tests can't see. I also learned to treat test reviews as seriously as security reviews: they found that my limiter was never tested failing closed on its own and that the sweep could have deleted live windows unnoticed, and mutation runs confirmed both before I fixed them.
