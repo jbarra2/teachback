@@ -182,13 +182,14 @@ describe("log redaction", () => {
     ],
     [
       "a session data cookie",
-      `cookie ${["better-auth.session_data", "eyJzZXNzaW9uIjp7fX0.sig"].join("=")}; Path=/`,
-      "eyJzZXNzaW9uIjp7fX0",
+      // Low-entropy fake values, so secret scanners don't take them for real ones.
+      "cookie better-auth.session_data=xxxxxxxxdata.xxxx; Path=/",
+      "xxxxxxxxdata",
     ],
     [
       "a session cookie",
-      `cookie ${["better-auth.session_token", "abc123.SIGNATURE"].join("=")}; Path=/`,
-      "abc123.SIGNATURE",
+      "cookie better-auth.session_token=xxxxxxxxtoken.xxxx; Path=/",
+      "xxxxxxxxtoken",
     ],
     [
       "a secure session cookie",
