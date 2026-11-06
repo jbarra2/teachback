@@ -3,7 +3,7 @@
 Notes that teach you back. Students upload lecture notes, explain concepts in their own words, get feedback grounded in their notes (Claude API), and see a concept map of what to review next.
 
 - **Deadline:** submit Sun Nov 8, 2026. **Work stops Sat Nov 7 at night.** Sunday is the lead's submission prep only.
-- **Required deliverable:** the repo (public) and a README. A live deployment is a stretch goal.
+- **Required deliverable:** the repo (public) and a README that explains how to set up and run TeachBack locally. There is no live deployment.
 - **Tasks live in GitHub Issues** (created from `scripts/backlog.json`). This file is the spec those issues reference ("PLAN §n"). Testing and security: `docs/TESTING.md`. Workflow: `CONTRIBUTING.md`. Claude's rules: `CLAUDE.md`.
 
 ---
@@ -25,7 +25,7 @@ Notes that teach you back. Students upload lecture notes, explain concepts in th
 - Security baseline (TESTING §8)
 - README a grader can follow
 
-**Cut to fit the schedule:** background worker (replaced by Next.js `after()`), Docker production image, dispute button, session summaries, edge types, OAuth, spaced repetition, OCR, sharing, mobile app.
+**Cut to fit the schedule:** background worker (replaced by Next.js `after()`), Docker production image, dispute button, session summaries, edge types, OAuth, spaced repetition, OCR, sharing, mobile app, and a live deployment (cut Thu 11/5; the README covers local setup).
 
 ---
 
@@ -67,7 +67,6 @@ Only edit your track's folders. Need a change elsewhere? Comment on your issue a
 | Security tooling | ESLint security rules, git hooks (secret scan), gitleaks, `npm audit`, CodeQL, Dependabot, Claude Code `/security-review` | See `docs/TESTING.md` §2                                                                                                                                                                  |
 | Tooling          | Node 24+, npm 11.11+ below 12 (`devEngines` enforces both), Prettier (LF), tsx                                            | Cross-platform: Windows + macOS                                                                                                                                                           |
 | CI               | GitHub Actions (`ci.yml`) + CodeQL default setup                                                                          | Required checks: `ci-ok` and CodeQL                                                                                                                                                       |
-| Deploy (stretch) | Vercel Hobby + Neon Free (production DB only)                                                                             | `docs/DEPLOY.md`                                                                                                                                                                          |
 
 ---
 
@@ -142,7 +141,7 @@ prisma/schema.prisma, prisma/migrations/, prisma/seed.ts
 tests/helpers/, tests/contract/, tests/integration/ (lead) · tests/e2e/ (AI track, T29)
 fixtures/notes/, fixtures/eval/
 scripts/   setup.mjs, verify.mjs, install-hooks.mjs, hooks/, setup-github.mjs, backlog.json, ai-ping.ts, eval.ts
-docs/      PLAN.md, TESTING.md, DEPLOY.md, JOURNAL.md, eval.md; journal/<github-username>.md (one per person)
+docs/      PLAN.md, TESTING.md, JOURNAL.md, eval.md; journal/<github-username>.md (one per person)
 ```
 
 ---
@@ -424,11 +423,10 @@ Postman users can import `openapi.yaml` directly.
 
 ## §10 Environments & scripts
 
-|                          | Database                                       | AI                | Env file                              |
-| ------------------------ | ---------------------------------------------- | ----------------- | ------------------------------------- |
-| **Local dev**            | Docker `db` (127.0.0.1:5433)                   | `fake` by default | `.env` (created by `npm run setup`)   |
-| **Tests** (local + CI)   | Docker `db-test` (127.0.0.1:5434) / CI service | `fake`            | `.env.test` (committed, dummy values) |
-| **Production (stretch)** | Neon `main` branch                             | `anthropic`       | Vercel env vars (`docs/DEPLOY.md`)    |
+|                        | Database                                       | AI                | Env file                              |
+| ---------------------- | ---------------------------------------------- | ----------------- | ------------------------------------- |
+| **Local dev**          | Docker `db` (127.0.0.1:5433)                   | `fake` by default | `.env` (created by `npm run setup`)   |
+| **Tests** (local + CI) | Docker `db-test` (127.0.0.1:5434) / CI service | `fake`            | `.env.test` (committed, dummy values) |
 
 **npm scripts:**
 
@@ -471,19 +469,19 @@ Evenings on weekdays, full days on weekends.
 
 ### At a glance
 
-| Date              | Lead                                                     | AI            | Frontend      |
-| ----------------- | -------------------------------------------------------- | ------------- | ------------- |
-| Thu 10/29 (night) | Repo + day-one files + issues, T01                       | –             | –             |
-| Fri 10/30 (eve)   | Onboard team, T02, T03                                   | `/setup`, T04 | `/setup`, T05 |
-| Sat 10/31         | T06, T07                                                 | T10, T11, T08 | T09, T15      |
-| Sun 11/1          | T13, then T14 (after T12 merges)                         | T12           | T15, T16      |
-| Mon 11/2 (eve)    | **T20 go/no-go**, reviews                                | T17, T18      | T16, T19      |
-| Tue 11/3 (eve)    | T21, reviews                                             | T22           | T23           |
-| Wed 11/4 (eve)    | Buffer: reviews, unblock, pair where behind              | T22, T24      | T25           |
-| Thu 11/5 (eve)    | T28                                                      | T27           | T25, T26      |
-| Fri 11/6 (eve)    | T28, T31 (stretch), reviews. **Feature freeze 11:59 PM** | T27, T29      | T30           |
-| Sat 11/7          | T32, T33. **Stop at night**                              | T32 fixes     | T32 fixes     |
-| Sun 11/8          | **T34: submit on Canvas**                                | –             | –             |
+| Date              | Lead                                        | AI            | Frontend      |
+| ----------------- | ------------------------------------------- | ------------- | ------------- |
+| Thu 10/29 (night) | Repo + day-one files + issues, T01          | –             | –             |
+| Fri 10/30 (eve)   | Onboard team, T02, T03                      | `/setup`, T04 | `/setup`, T05 |
+| Sat 10/31         | T06, T07                                    | T10, T11, T08 | T09, T15      |
+| Sun 11/1          | T13, then T14 (after T12 merges)            | T12           | T15, T16      |
+| Mon 11/2 (eve)    | **T20 go/no-go**, reviews                   | T17, T18      | T16, T19      |
+| Tue 11/3 (eve)    | T21, reviews                                | T22           | T23           |
+| Wed 11/4 (eve)    | Buffer: reviews, unblock, pair where behind | T22, T24      | T25           |
+| Thu 11/5 (eve)    | T28                                         | T27           | T25, T26      |
+| Fri 11/6 (eve)    | T28, reviews. **Feature freeze 11:59 PM**   | T27, T29      | T30           |
+| Sat 11/7          | T32, T33. **Stop at night**                 | T32 fixes     | T32 fixes     |
+| Sun 11/8          | **T34: submit on Canvas**                   | –             | –             |
 
 **Critical paths:**
 
@@ -496,11 +494,10 @@ Evenings on weekdays, full days on weekends.
 
 **Cut list** (in order, if behind at T20 or later):
 
-1. T31 deploy
-2. T27 beyond one round
-3. T26 becomes a single button
-4. T25 becomes a grid of cards
-5. PDF support
+1. T27 beyond one round
+2. T26 becomes a single button
+3. T25 becomes a grid of cards
+4. PDF support
 
 **Never cut:** security matrix tests, T14, the T29 security specs.
 
@@ -544,7 +541,6 @@ Full acceptance criteria are in each GitHub issue.
 | T28 | Remove mocks + full integration ⚡                                           | Lead     | Thu 11/5 – Fri 11/6   | M3  | T21, T23, T24, T25, T26      |
 | T29 | E2E tests: happy path + security (Playwright) ⚡ 🔒                          | AI       | Fri 11/6              | M4  | T28                          |
 | T30 | UI polish + accessibility pass                                               | Frontend | Fri 11/6              | M4  | T15, T23, T25, T26           |
-| T31 | Deploy to Vercel + Neon (stretch)                                            | Lead     | Fri 11/6 – Sat 11/7   | M4  | T28                          |
 | T32 | Bug bash: smoke + abuse testing ⚡ 🔒                                        | Lead     | Sat 11/7              | M4  | T27, T29, T30                |
 | T33 | README & submission prep ⚡                                                  | Lead     | Sat 11/7              | M4  | T28                          |
 | T34 | Submit on Canvas ⚡                                                          | Lead     | Sun 11/8              | M4  | T32, T33                     |
@@ -567,4 +563,3 @@ Full acceptance criteria are in each GitHub issue.
 | Lead is the bottleneck              | T19 → Frontend, T24 and T29 → AI, Wednesday buffer. PRs merge on green CI with no approval. Only teammates' risky PRs wait for the lead's review (CONTRIBUTING). T06 no longer waits on Frontend; start it Friday night if T02/T03 finish early. |
 | Merge conflicts / blocked teammates | Folder ownership, protected contract/schema, small PRs, blocked-by links                                                                                                                                                                         |
 | API cost / Opus latency             | Fake provider by default, prompt caching, per-user rate limits, T27 measures Opus vs Sonnet for grading                                                                                                                                          |
-| Deploy rabbit hole                  | Stretch only, 2-hour cap                                                                                                                                                                                                                         |

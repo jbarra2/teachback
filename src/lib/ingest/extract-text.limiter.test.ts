@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -151,7 +152,8 @@ describe("PDF child process", () => {
       string[],
       { env: Record<string, string>; execArgv: string[]; stdio: unknown[] },
     ];
-    expect(entry.endsWith(C.PDF_CHILD_ENTRY)).toBe(true);
+    // Built with path.join, as readPdf does: `\` separators on Windows, `/` elsewhere.
+    expect(entry).toBe(path.join(process.cwd(), C.PDF_CHILD_ENTRY));
     expect(args).toContain("--teachback-pdf-child");
     expect(options.execArgv).toEqual([
       `--max-old-space-size=${C.PDF_CHILD_HEAP_MB}`,

@@ -362,6 +362,33 @@ I couldn't reproduce the failures: two and then three concurrent test runs all p
 **What I learned:**
 `spawnSync` blocks the worker, so a test-runner timeout can only report an overrun after the fact; the child needs its own timeout. But adding a timeout for safety can change what a test accepts: an assertion that only checks "didn't succeed" also passes for a process the test itself killed. Now I check what a killed process returns before relying on that kind of assertion.
 
+## T45 · Cut deployment from the plan (#72) · Nov 5, 2026
+
+**What I built:** Took the deployment stretch goal (T31, Vercel + Neon) out of the plan. The project now ships as the public repo plus a README that explains how to set it up and run it locally.
+
+- `docs/PLAN.md`: the deliverable, stack, folder list, environments, schedule, cut list, backlog table and risks no longer mention a deployment. It's listed under "Cut to fit the schedule" instead.
+- `docs/DEPLOY.md` is deleted. The one test comment that pointed to it now states the rule itself.
+- `scripts/backlog.json`: T31 is removed. T33's README criteria now spell out local setup (prerequisites, `npm run setup`, fake or real AI, stopping the databases, common setup problems) and a fresh-clone test on Windows and macOS. T34 no longer mentions a live URL.
+- On GitHub: #31 is closed as not planned, and #33 and #34 match `backlog.json`.
+
+**Skills & tools:** Scope planning, GitHub CLI (issues, linked branches), git worktrees, Prettier
+
+**Asked Claude for:** Cut deployment from the plan, because it isn't realistic before the freeze and isn't worth squeezing in, and finish instead with a clean README that explains local setup. I approved Claude's plan, and asked for a full verify run first to see what was failing.
+
+**Decided / dropped:**
+
+- Cut the deployment completely instead of leaving it as a stretch goal, so Friday goes to integration (T28) and reviews.
+- Deleted `docs/DEPLOY.md` rather than keep a guide nobody will follow. Git history still has it.
+- Kept the settings that are general hardening rather than deployment steps (`DIRECT_URL`, the trusted IP header, API docs off by default), since they still matter to anyone who runs the app.
+- The fresh-clone test runs on both Windows and macOS, because the team uses both, and a Windows-only test failure had just blocked pushes.
+- Worked in a separate git worktree, because T43 was still uncommitted on its own branch.
+
+**Hardest part, and how I solved it:**
+Finding every place that assumed a deployment. It wasn't only the plan: the issue seed file, three issue bodies, a test comment and the deploy guide all pointed to it, and nothing regenerates existing issues from `backlog.json`. I searched the repo for every mention first, then rebuilt each issue's acceptance criteria from the edited `backlog.json` entry, so the plan, the seed file and GitHub agree.
+
+**What I learned:**
+Cutting scope is a change like any other: the plan, the task list and the tracker all have to agree, or someone keeps building toward a goal that's gone. Saying what replaces the cut work, a README someone can follow on a fresh clone, makes the end of the project clearer than deleting a line.
+
 ## T43 · Non-null session user in withApi handlers (#65) · Nov 6, 2026
 
 **What I built:** `withApi` now types the signed-in user from the `auth` option, so handlers on routes that need a session no longer write `user!.id`.
