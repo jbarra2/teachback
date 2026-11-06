@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { connection } from "next/server";
 import { TopNav } from "@/components/top-nav";
 import { cn, focusRing } from "@/components/ui";
 import "./globals.css";
@@ -20,7 +21,11 @@ export const metadata: Metadata = {
     "Explain concepts in your own words and get feedback grounded in your lecture notes.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Every page renders per request, so Next can tag its scripts with that response's CSP nonce
+  // (src/proxy.ts, T14). A page prerendered at build would have no nonce, and its scripts would
+  // be blocked.
+  await connection();
   return (
     <html
       lang="en"

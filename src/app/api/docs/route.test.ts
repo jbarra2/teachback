@@ -7,6 +7,20 @@ const request = () => new Request("http://localhost:3000/api/docs");
 
 // The real Scalar page, unless a test swaps in other HTML to see what the route does with it.
 const scalar = vi.hoisted(() => ({ page: null as string | null }));
+// The next nonce the route makes, when a test needs a particular one (otherwise the real, random one).
+const nonces = vi.hoisted(() => ({ next: null as string | null }));
+vi.mock("@/lib/api/security-headers", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/api/security-headers")>();
+  return {
+    ...actual,
+    createNonce: () => {
+      const forced = nonces.next;
+      nonces.next = null;
+      return forced ?? actual.createNonce();
+    },
+  };
+});
 vi.mock("@scalar/nextjs-api-reference", async (importOriginal) => {
   const actual = await importOriginal<typeof scalarNext>();
   return {
@@ -82,12 +96,16 @@ describe("GET /api/docs", () => {
   });
 
   it("loads one script from outside: the pinned Scalar release, checked by its hash", async () => {
-    const { html } = await render();
+    const { res, html } = await render();
     const scripts = [
       ...html.matchAll(/<script\b[^>]*\bsrc="[^"]*"[^>]*>/g),
     ].map((m) => m[0]);
+    // The nonce (T14) is this response's, from its CSP.
+    const nonce = /'nonce-([^']+)'/.exec(
+      res.headers.get("content-security-policy") ?? "",
+    )?.[1];
     expect(scripts).toEqual([
-      `<script src="${SCALAR_BUNDLE_URL}" integrity="${SCALAR_BUNDLE_INTEGRITY}" crossorigin="anonymous">`,
+      `<script src="${SCALAR_BUNDLE_URL}" integrity="${SCALAR_BUNDLE_INTEGRITY}" crossorigin="anonymous" nonce="${nonce}">`,
     ]);
     expect(SCALAR_BUNDLE_URL).toMatch(
       /^https:\/\/cdn\.jsdelivr\.net\/npm\/@scalar\/api-reference@\d+\.\d+\.\d+\/dist\/browser\/standalone\.js$/,
@@ -141,5 +159,64 @@ describe("GET /api/docs", () => {
     const html = await (await fresh.GET(request())).text();
     expect(html).toContain("TeachBack API");
     expect(html).not.toMatch(/secret-marker/);
+  });
+});
+
+// T14: the docs page gets its own CSP, scoped to this route (the app's pages never allow the CDN).
+describe("GET /api/docs: Content-Security-Policy", () => {
+  const cspOf = (res: Response) =>
+    res.headers.get("content-security-policy") ?? "";
+  const nonceOf = (csp: string) => /'nonce-([^']+)'/.exec(csp)?.[1] ?? "";
+
+  it("allows only the pinned bundle and scripts carrying this request's nonce", async () => {
+    const { res, html } = await render();
+    const csp = cspOf(res);
+    expect(csp).toContain(
+      `script-src 'nonce-${nonceOf(csp)}' ${SCALAR_BUNDLE_URL};`,
+    );
+    expect(csp).toMatch(/default-src 'none'/);
+    expect(csp).toMatch(/frame-ancestors 'none'/);
+    expect(csp).not.toMatch(/script-src[^;]*(unsafe-inline|unsafe-eval|\*)/);
+    // Every script tag on the page carries the nonce, so nothing on it is blocked by accident.
+    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
+  });
+
+  it("uses a new nonce on every request", async () => {
+    const first = nonceOf(cspOf((await render()).res));
+    const second = nonceOf(cspOf((await render()).res));
+    expect(first).toBeTruthy();
+    expect(first).not.toBe(second);
+  });
+
+  it("keeps the integrity check on the bundle's tag alongside the nonce", async () => {
+    const { res, html } = await render();
+    const nonce = nonceOf(cspOf(res));
+    expect(html).toContain(
+      `<script src="${SCALAR_BUNDLE_URL}" integrity="${SCALAR_BUNDLE_INTEGRITY}" crossorigin="anonymous" nonce="${nonce}">`,
+    );
+  });
+
+  it("the 404 when the docs are off gets the API's locked-down CSP, not the docs one", async () => {
+    vi.stubEnv("API_DOCS_ENABLED", "false");
+    const res = await route.GET(request());
+    expect(res.status).toBe(404);
+    expect(cspOf(res)).not.toContain("jsdelivr");
+    expect(cspOf(res)).toMatch(/^default-src 'none'/);
+  });
+});
+
+// Regression (T14 live check): a base64 nonce can contain "//", which the page check reads as a
+// URL, so about one docs request in 200 failed with a 500.
+describe("GET /api/docs: nonces that look like URLs", () => {
+  it("serves the page whatever characters the nonce has", async () => {
+    nonces.next = "ab//cd+ef/AAAAAAAAAAAA==";
+    const { res } = await render();
+    expect(res.status).toBe(200);
+    // The forced nonce really was used, so this case is the one that used to fail.
+    expect(res.headers.get("content-security-policy")).toContain(
+      "'nonce-ab//cd+ef/AAAAAAAAAAAA=='",
+    );
   });
 });

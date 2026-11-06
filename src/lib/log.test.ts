@@ -81,3 +81,159 @@ describe("log", () => {
     expect(lines[0].who).toBe("[email]");
   });
 });
+
+// T14: redaction. Whatever a caller or a library passes, these never reach a log line.
+describe("log redaction", () => {
+  it.each([
+    "cookie",
+    "Cookie",
+    "set-cookie",
+    "authorization",
+    "Authorization",
+    "token",
+    "sessionToken",
+    "session_token",
+    "accessToken",
+    "secret",
+    "clientSecret",
+    "password",
+    "newPassword",
+    "apiKey",
+    "api_key",
+    "x-api-key",
+    "BETTER_AUTH_SECRET",
+    "ANTHROPIC_API_KEY",
+    "sessionId",
+  ])("redacts the value of a field named %j", (key) => {
+    const lines = capture();
+    log.info("x", { [key]: "value-marker-123" });
+    expect(lines[0][key]).toBe("[redacted]");
+    expect(JSON.stringify(lines)).not.toContain("value-marker-123");
+  });
+
+  it.each([
+    "text",
+    "rawText",
+    "noteText",
+    "answer",
+    "content",
+    "body",
+    "prompt",
+    "note",
+    "studentAnswer",
+    "answerText",
+    "questionText",
+    "feedback",
+    "excerpt",
+    "chunkText",
+    "quote",
+    "question",
+    "chunk",
+  ])(
+    "never writes a field named %j, which could hold a student's notes or answer",
+    (key) => {
+      const lines = capture();
+      log.info("x", { [key]: "The mitochondria is the powerhouse" });
+      expect(lines[0][key]).toBe("[redacted]");
+      expect(JSON.stringify(lines)).not.toContain("powerhouse");
+    },
+  );
+
+  it("keeps ordinary fields", () => {
+    const lines = capture();
+    log.info("x", {
+      requestId: "r1",
+      path: "/api/courses",
+      status: 429,
+      userIdKnown: true,
+    });
+    expect(lines[0]).toMatchObject({
+      requestId: "r1",
+      path: "/api/courses",
+      status: 429,
+      userIdKnown: true,
+    });
+  });
+
+  // Built from parts so secret scanners don't read the fake values as real credentials.
+  const ANTHROPIC_PREFIX = ["sk", "ant", "api03"].join("-");
+  const DB_URL = [
+    "postgresql:",
+    "",
+    "teach:pa55word@db.example:5432",
+    "app",
+  ].join("/");
+
+  const SECRETS: [string, string, string][] = [
+    [
+      "an Anthropic key",
+      `key ${ANTHROPIC_PREFIX}-AbC_dEf-123456789`,
+      ANTHROPIC_PREFIX,
+    ],
+    [
+      "a bearer token",
+      "sent Authorization: Bearer eyJhbGciOi.payload.sig",
+      "eyJhbGciOi",
+    ],
+    [
+      "basic credentials",
+      "sent Authorization: Basic dXNlcjpodW50ZXIy",
+      "dXNlcjpodW50ZXIy",
+    ],
+    [
+      "a session data cookie",
+      "cookie better-auth.session_data=eyJzZXNzaW9uIjp7fX0.sig; Path=/",
+      "eyJzZXNzaW9uIjp7fX0",
+    ],
+    [
+      "a session cookie",
+      "cookie better-auth.session_token=abc123.SIGNATURE; Path=/",
+      "abc123.SIGNATURE",
+    ],
+    [
+      "a secure session cookie",
+      "__Secure-better-auth.session_token=tok456.sig",
+      "tok456.sig",
+    ],
+    ["a database URL's password", `connect failed: ${DB_URL}`, "pa55word"],
+    [
+      "a token in a query string",
+      "GET /reset?token=tok789xyz&x=1",
+      "tok789xyz",
+    ],
+    ["a password in a query string", "body password=hunter22", "hunter22"],
+    ["an API key in a query string", "GET /x?api_key=k123secret", "k123secret"],
+    [
+      "a password in JSON",
+      'failed: {"email":"a","password":"hunter33"}',
+      "hunter33",
+    ],
+    ["a token after a colon", "refresh failed, token: tok321abc", "tok321abc"],
+    [
+      "a secret in single quotes",
+      "config secret: 'sh-secret-99'",
+      "sh-secret-99",
+    ],
+  ];
+
+  it.each(SECRETS)("hides %s in the message", (_name, text, secret) => {
+    const lines = capture();
+    log.error(text);
+    expect(JSON.stringify(lines)).not.toContain(secret);
+    expect(String(lines[0].msg)).toContain("[redacted]");
+  });
+
+  it.each(SECRETS)("hides %s in a field value", (_name, text, secret) => {
+    const lines = capture();
+    log.error("x", { detail: text });
+    expect(JSON.stringify(lines)).not.toContain(secret);
+  });
+
+  it("keeps the readable part of a database URL", () => {
+    const lines = capture();
+    log.error(`connect failed: ${DB_URL}`);
+    expect(lines[0].msg).toBe(
+      "connect failed: postgresql://[redacted]@db.example:5432/app",
+    );
+  });
+});

@@ -807,6 +807,37 @@ describe("next.config.ts", () => {
     expect(nextConfig.cacheComponents).not.toBe(true);
   });
 
+  // T14: pages also get them from src/proxy.ts and API routes from withApi; this covers what
+  // neither sees (static files, Next's own 404, 405 and OPTIONS answers).
+  it("sends the security headers on every path", async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    expect(rules.map((rule) => rule.source)).toEqual(["/:path*"]);
+    for (const rule of rules) {
+      const headers = new Map(
+        rule.headers.map(({ key, value }) => [key, value]),
+      );
+      expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(headers.get("Referrer-Policy")).toBe(
+        "strict-origin-when-cross-origin",
+      );
+      expect(headers.has("Permissions-Policy")).toBe(true);
+      // The page CSP needs a per-request nonce, which only the proxy can make.
+      expect(headers.has("Content-Security-Policy")).toBe(false);
+    }
+  });
+
+  // T14: a page prerendered at build has no CSP nonce, so the browser blocks all of its scripts.
+  // The root layout makes every page render per request (proven by T14's live browser check).
+  it("renders every page per request, so each gets its CSP nonce", () => {
+    const layout = readFileSync(path.join(root, "src/app/layout.tsx"), "utf8");
+    expect(layout).toMatch(/^\s*await connection\(\);$/m);
+    expect(layout).toMatch(/^import \{ connection \} from "next\/server";$/m);
+  });
+
+  it("doesn't announce the framework in an X-Powered-By header", () => {
+    expect(nextConfig.poweredByHeader).toBe(false);
+  });
+
   it("ships only openapi.yaml with GET /api/openapi, and only the PDF child script and unpdf with POST /api/documents, which load them from disk", () => {
     expect(nextConfig.outputFileTracingIncludes).toEqual({
       "/api/openapi": ["./openapi/openapi.yaml"],

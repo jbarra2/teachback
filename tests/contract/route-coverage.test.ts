@@ -32,7 +32,6 @@ const ROUTE_FILE = /^route\.(ts|tsx|js|jsx)$/;
  * handler, so the list can only shrink.
  */
 const NOT_BUILT_YET: Record<string, string> = {
-  getHealth: "T14",
   uploadDocument: "T12",
   getDocument: "T12",
   createQuestion: "T17",
@@ -95,6 +94,8 @@ interface SpecOperation {
   key: string;
   id: string;
   secured: boolean;
+  /** The operation's `x-rate-limit` bucket, if it has one. */
+  rateLimit?: string;
 }
 
 /**
@@ -121,6 +122,27 @@ function authMismatches(
   ];
 }
 
+/**
+ * Handlers whose rate limit differs from the spec's (T14): an operation marked `x-rate-limit` must
+ * be built with that `rateLimit`, and an unmarked one with none. Otherwise a route could ship with
+ * its AI-cost or upload cap silently off.
+ */
+function rateLimitMismatches(
+  ops: SpecOperation[],
+  found: Map<string, unknown>,
+): string[] {
+  return ops
+    .filter(({ key }) => found.has(key))
+    .filter(
+      ({ key, rateLimit }) =>
+        withApiOptions(found.get(key))?.rateLimit !== rateLimit,
+    )
+    .map(
+      ({ key, rateLimit }) =>
+        `${key} should have rateLimit: ${rateLimit ?? "none"}`,
+    );
+}
+
 describe("route coverage", () => {
   const specOperations: SpecOperation[] = operations(loadSpec()).map(
     ({ method, path: p, operation }) => ({
@@ -131,6 +153,7 @@ describe("route coverage", () => {
       secured: !(
         Array.isArray(operation.security) && operation.security.length === 0
       ),
+      rateLimit: operation["x-rate-limit"] as string | undefined,
     }),
   );
 
@@ -180,6 +203,65 @@ describe("route coverage", () => {
 
   it("requires a session exactly where openapi.yaml does, and none on /api/auth/*", () => {
     expect(authMismatches(specOperations, handlers())).toEqual([]);
+  });
+
+  it("rate-limits exactly the operations openapi.yaml marks with x-rate-limit", () => {
+    expect(rateLimitMismatches(specOperations, handlers())).toEqual([]);
+    // The spec marks the upload and both AI operations; they get checked as their routes land.
+    expect(
+      specOperations
+        .filter(({ rateLimit }) => rateLimit)
+        .map(({ id, rateLimit }) => `${id}:${rateLimit}`)
+        .sort(),
+    ).toEqual([
+      "answerQuestion:ai",
+      "createQuestion:ai",
+      "uploadDocument:upload",
+    ]);
+  });
+
+  it("reports a handler whose rate limit doesn't match the spec", () => {
+    const handler = () => new Response(null);
+    const ops: SpecOperation[] = [
+      {
+        key: "POST /api/documents",
+        id: "uploadDocument",
+        secured: true,
+        rateLimit: "upload",
+      },
+      {
+        key: "POST /api/concepts/{id}/question",
+        id: "createQuestion",
+        secured: true,
+        rateLimit: "ai",
+      },
+      {
+        key: "POST /api/questions/{id}/answer",
+        id: "answerQuestion",
+        secured: true,
+        rateLimit: "ai",
+      },
+      { key: "GET /api/courses", id: "listCourses", secured: true },
+      { key: "POST /api/courses", id: "createCourse", secured: true },
+    ];
+    const found = new Map<string, unknown>([
+      ["POST /api/documents", withApi(handler)],
+      [
+        "POST /api/concepts/{id}/question",
+        withApi(handler, { rateLimit: "upload" }),
+      ],
+      [
+        "POST /api/questions/{id}/answer",
+        withApi(handler, { rateLimit: "ai" }),
+      ],
+      ["GET /api/courses", withApi(handler, { rateLimit: "ai" })],
+      ["POST /api/courses", withApi(handler)],
+    ]);
+    expect(rateLimitMismatches(ops, found)).toEqual([
+      "POST /api/documents should have rateLimit: upload",
+      "POST /api/concepts/{id}/question should have rateLimit: ai",
+      "GET /api/courses should have rateLimit: none",
+    ]);
   });
 
   // No built route needs a session yet (T13 adds the first), so the comparison is checked here
