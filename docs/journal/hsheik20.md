@@ -97,3 +97,25 @@ Proving that nothing was lost, duplicated or reordered. A single check rebuilds 
 
 **What I learned:**
 Citation accuracy is a design decision: merging small sections makes better chunks, but the label has to say what was merged, or the feedback points students to the wrong part of their notes. JavaScript strings don't always treat what we see as one character as a single unit. Some emoji and accented characters consist of multiple parts, so I learned why splitting at grapheme boundaries matters. And a security review can find problems upstream: reviewing my chunker found that my T10 code runs NFC normalization before the length check, and a note-sized input blocked the server for about 12 s. I documented the issue in #69 instead of expanding T11's scope, so Jonathan can decide whether it needs to be fixed before T12 introduces uploads.
+
+## T44 · Make PDF child-process tests pass on Windows (#68) · Nov 5, 2026
+
+**What I built:** Cross-platform versions of the five T10 tests that failed on Windows, which blocked every push from a Windows machine because the pre-push hook runs them. In `src/lib/ingest/extract-text.child.test.ts` and `extract-text.limiter.test.ts`, a small `expectEndedBy` helper checks how a child process ended: the exact signal on Linux and macOS, as before, and no signal with a non-zero exit code on Windows, which doesn't report POSIX termination signals the way Linux and macOS do. The fork-path check now compares the full platform path. No production code changed. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results.
+
+**Skills & tools:** Node `child_process` (exit codes vs. signals), cross-platform paths (`node:path`), Vitest (annotations, platform-specific assertions), mutation testing by hand, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T44 that showed the exact Windows failures before any code was written, then a read-only search for whether Jonathan had already posted his Windows output (he hadn't). I chose to go ahead without it, following the issue's "non-zero exit code" rule rather than assuming exact codes, and asked for the server-death test to be handled without guessing how Windows behaves.
+
+**Decided / dropped:**
+
+- Windows tests check for a non-null, non-zero exit code instead of exact codes (134 for an abort, 1 for a kill). Those numbers come from how Node and libuv usually behave, but nobody had seen them on our machines. The trade-off is that Windows can't tell an abort from a kill; Linux and macOS still can.
+- Linux and macOS stay at least as strict: they now require `{ code: null, signal }` exactly, and the fork-path check is an exact match instead of a suffix.
+- Windows may end a child along with its parent, but I couldn't confirm that. So on Windows the server-death test records whether the child survived as a test annotation, and still requires it to be gone within 8 seconds. Linux and macOS still assert that the child outlives the server.
+- Production code is unchanged. It already treats any exit without an answer as a failure and never uses the signal to choose the error, and existing tests already cover Windows-style exits.
+- Dropped a suggestion from the security review to also reject exit code 1 on Windows, because it relied on an exit code we hadn't observed.
+
+**Hardest part, and how I solved it:**
+Fixing tests for a platform I couldn't run. The issue didn't include Jonathan's actual failure output, so we first checked the issue, the T10 PR and CI for it, and found that CI only runs on Linux. From then on we separated what was confirmed from what was assumed. To make sure the Linux and macOS checks still had teeth, we broke the watchdog on purpose: it sent SIGTERM, ignored the deadline, or treated an invalid deadline as no deadline, and each break made a test fail. A temporary copy of the tests that pretended to be Windows showed that the Windows checks accept and reject the right exit shapes. All the tests passed on my Mac, but the final confirmation still needs to come from running them on Windows.
+
+**What I learned:**
+Windows doesn't report POSIX termination signals the way Linux and macOS do: a process killed or aborted there shows up as an exit code with no signal, so tests that assert a signal only work on Linux and macOS. Paths differ too: `path.join` gives backslashes on Windows, so comparing against the same `path.join` call is more reliable than matching a hard-coded suffix. And when I can't test on a platform, it's better to have the test record what happens there than to assert behavior I've only read about.
