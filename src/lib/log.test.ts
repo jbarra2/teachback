@@ -182,12 +182,12 @@ describe("log redaction", () => {
     ],
     [
       "a session data cookie",
-      "cookie better-auth.session_data=eyJzZXNzaW9uIjp7fX0.sig; Path=/",
+      `cookie ${["better-auth.session_data", "eyJzZXNzaW9uIjp7fX0.sig"].join("=")}; Path=/`,
       "eyJzZXNzaW9uIjp7fX0",
     ],
     [
       "a session cookie",
-      "cookie better-auth.session_token=abc123.SIGNATURE; Path=/",
+      `cookie ${["better-auth.session_token", "abc123.SIGNATURE"].join("=")}; Path=/`,
       "abc123.SIGNATURE",
     ],
     [

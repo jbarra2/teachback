@@ -178,7 +178,7 @@ describe("GET /api/docs: Content-Security-Policy", () => {
     expect(csp).toMatch(/frame-ancestors 'none'/);
     expect(csp).not.toMatch(/script-src[^;]*(unsafe-inline|unsafe-eval|\*)/);
     // Every script tag on the page carries the nonce, so nothing on it is blocked by accident.
-    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    const scripts = html.match(/<script\b[^>]*>/gi) ?? [];
     expect(scripts.length).toBeGreaterThan(0);
     for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
   });
