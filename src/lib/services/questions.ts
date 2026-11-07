@@ -15,6 +15,33 @@ export const RECENT_QUESTION_COUNT = 5;
 /** The whole AI step: one attempt (60 s) plus a quick retry, not two full timeouts. */
 export const QUESTION_DEADLINE_MS = 90_000;
 
+/** What a concept's notes are read with, here and when grading an answer (services/answer.ts). */
+export const NOTE_CHUNK_SELECT = {
+  id: true,
+  order: true,
+  text: true,
+  refLabel: true,
+  document: { select: { createdAt: true } },
+} as const;
+
+export interface NoteChunk {
+  id: string;
+  order: number;
+  text: string;
+  refLabel: string;
+  document: { createdAt: Date };
+}
+
+/** Oldest document first, then each document's own order: the notes as the student wrote them. */
+export function inNoteOrder<C extends NoteChunk>(chunks: C[]): C[] {
+  return [...chunks].sort(
+    (a, b) =>
+      a.document.createdAt.getTime() - b.document.createdAt.getTime() ||
+      a.order - b.order ||
+      (a.id < b.id ? -1 : 1),
+  );
+}
+
 export interface NewQuestion {
   questionId: string;
   text: string;
@@ -36,32 +63,12 @@ export async function createQuestion(
       id: true,
       name: true,
       summary: true,
-      chunks: {
-        select: {
-          chunk: {
-            select: {
-              id: true,
-              order: true,
-              text: true,
-              refLabel: true,
-              document: { select: { createdAt: true } },
-            },
-          },
-        },
-      },
+      chunks: { select: { chunk: { select: NOTE_CHUNK_SELECT } } },
     },
   });
   if (!concept || concept.chunks.length === 0) return null;
 
-  // Oldest document first, then each document's own order: the notes as the student wrote them.
-  const chunks = concept.chunks
-    .map(({ chunk }) => chunk)
-    .sort(
-      (a, b) =>
-        a.document.createdAt.getTime() - b.document.createdAt.getTime() ||
-        a.order - b.order ||
-        (a.id < b.id ? -1 : 1),
-    );
+  const chunks = inNoteOrder(concept.chunks.map(({ chunk }) => chunk));
   // Short ids made here: the model never sees, or picks, a database id.
   const sources: QuestionSource[] = chunks.map((chunk, index) => ({
     key: `s${index + 1}`,
