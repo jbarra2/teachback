@@ -29,12 +29,13 @@ async function readForm(request: Request): Promise<Record<string, unknown>> {
   } catch {
     throw invalid("The upload couldn't be read as a form.");
   }
-  const fields: Record<string, unknown> = {};
+  // A Map, so a field named like an object property (__proto__) is kept as a field too.
+  const fields = new Map<string, FormDataEntryValue>();
   for (const [name, value] of form.entries()) {
-    if (Object.hasOwn(fields, name)) throw invalid(`"${name}" was sent twice.`);
-    fields[name] = value;
+    if (fields.has(name)) throw invalid(`"${name}" was sent twice.`);
+    fields.set(name, value);
   }
-  return fields;
+  return Object.fromEntries(fields);
 }
 
 /** An ingest problem as the contract's error: its status, its fixed message, and Retry-After. */

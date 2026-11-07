@@ -271,6 +271,18 @@ describe("extractConcepts", () => {
     expect(first).not.toContain('id="c2"');
   });
 
+  it("sends the chunks waiting before an oversized one, instead of losing them", async () => {
+    const huge = "y".repeat(BATCH_CHAR_BUDGET + 5);
+    generateJson.mockResolvedValue({ concepts: [], edges: [] });
+    await extractConcepts("T", [source("c1", "short"), source("c2", huge)]);
+    expect(generateJson).toHaveBeenCalledTimes(2);
+    const prompts = generateJson.mock.calls.map(
+      (call) => call[1].user as string,
+    );
+    expect(prompts[0]).toContain('id="c1"');
+    expect(prompts[1]).toContain('id="c2"');
+  });
+
   it("passes AI errors on, so the document fails instead of being saved half done", async () => {
     generateJson
       .mockResolvedValueOnce({ concepts: [concept("A", ["c1"])], edges: [] })

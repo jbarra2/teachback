@@ -46,6 +46,28 @@ function newConceptId(): string {
 /** How long the saving transaction may take; the AI work is already done by then. */
 const SAVE_TIMEOUT_MS = 15_000;
 
+/**
+ * The whole AI step's deadline: under the 10 minutes after which a pending document reads as
+ * FAILED (document-status.ts), so a slow run can't later turn a reported failure into READY.
+ */
+export const EXTRACTION_DEADLINE_MS = 8 * 60 * 1000;
+
+/** Rejects with AiError TIMEOUT once `ms` pass, and clears its timer either way. */
+export async function withDeadline<T>(
+  work: Promise<T>,
+  ms: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new AiError("TIMEOUT")), ms);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function sourceTypeOf(filename: string): SourceType {
   const extension = filename.toLowerCase().split(".").pop();
   if (extension === "pdf") return "PDF";
@@ -125,7 +147,10 @@ export async function processDocument(documentId: string): Promise<void> {
       refLabel: piece.refLabel,
       text: piece.text,
     }));
-    const { concepts, edges } = await extractConcepts(document.title, sources);
+    const { concepts, edges } = await withDeadline(
+      extractConcepts(document.title, sources),
+      EXTRACTION_DEADLINE_MS,
+    );
     if (concepts.length === 0) throw new NoConceptsError();
 
     await db.$transaction(
