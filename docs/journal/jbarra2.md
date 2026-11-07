@@ -440,3 +440,26 @@ A random bug in the docs page. The live check failed on `/api/docs` once and the
 
 **What I learned:**
 A CSP nonce only works if every page is rendered per request; a statically built page silently loses all its scripts, which unit tests can't see. I also learned to treat test reviews as seriously as security reviews: they found that my limiter was never tested failing closed on its own and that the sweep could have deleted live windows unnoticed, and mutation runs confirmed both before I fixed them.
+
+## T10 follow-up · Text uploads: NFC normalization can block the event loop on long combining-mark runs (#69) · Nov 6, 2026
+
+**What I built:** Uploaded and pasted notes with more than 30 combining marks in a row are now refused before normalization, which takes quadratic time on such runs and blocked the server.
+
+- `src/lib/ingest/pdf-child.ts`: `normalizeText` checks for a run longer than `MAX_COMBINING_RUN` (30, the Stream-Safe Text Format limit from UAX #15) before calling `.normalize("NFC")`. The PDF child answers `UNUSUAL_TEXT` for such a page.
+- `src/lib/ingest/extract-text.ts` and `errors.ts`: `normalizeNoteText` turns it into a 422 with a fixed message, and the parent accepts the child's new reason.
+- The BOM is now matched as `﻿` instead of an invisible literal.
+
+**Skills & tools:** Unicode normalization and combining marks (UAX #15), measuring algorithmic complexity, mutation testing
+
+**Asked Claude for:** Take this over from the AI track so T12 can expose uploads safely tonight, in its own small PR.
+
+**Decided / dropped:**
+
+- Checked the raw text with one linear regex before normalizing, rather than normalizing in pieces, because any normalization of the run is the slow part.
+- Used 30, the limit Unicode itself recommends, so real text in any language passes.
+
+**Hardest part, and how I solved it:**
+Proving the problem before fixing it. I timed NFC on growing runs of mixed accents: 10,000 marks took 38 ms, 50,000 took 941 ms and 100,000 took 3.7 s, so a 200,000-character note would freeze the server for about 15 seconds. A test with that input took 8 seconds before the fix and returns at once after it. A mutation run then showed that one test path was missing: nothing noticed if the parent stopped accepting the child's new reason, so I added a test for it.
+
+**What I learned:**
+A standard library call can have worst-case behaviour that only shows up with adversarial input, so input limits need to cover cost, not only size. Unicode's own Stream-Safe limit made a natural, defensible cut-off.

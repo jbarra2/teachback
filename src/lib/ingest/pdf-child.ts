@@ -37,7 +37,7 @@ export type PdfResult =
   | {
       reason: Extract<
         IngestErrorReason,
-        "TOO_MANY_PAGES" | "TEXT_TOO_LONG" | "UNREADABLE_PDF"
+        "TOO_MANY_PAGES" | "TEXT_TOO_LONG" | "UNREADABLE_PDF" | "UNUSUAL_TEXT"
       >;
     };
 
@@ -46,16 +46,30 @@ const CONTROL_CHARS = /[^\P{Cc}\n\t]/gu;
 const SURROGATE_PAIR = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
 
 /**
+ * The most combining marks in a row that normalizing accepts: the Stream-Safe Text Format limit
+ * from UAX #15. Real text never comes close. NFC takes quadratic time on a long run (100,000
+ * marks block for seconds), so a longer run is refused before normalizing (#69).
+ */
+export const MAX_COMBINING_RUN = 30;
+const LONG_COMBINING_RUN = new RegExp(`\\p{M}{${MAX_COMBINING_RUN + 1}}`, "u");
+
+/** Text with more than MAX_COMBINING_RUN combining marks in a row. */
+export class CombiningRunError extends Error {
+  override name = "CombiningRunError";
+}
+
+/**
  * BOM stripped, LF line endings, unpaired surrogates (which PostgreSQL refuses) replaced with
- * U+FFFD, NFC, and control characters removed. Not trimmed.
+ * U+FFFD, NFC, and control characters removed. Not trimmed. Throws CombiningRunError for a run
+ * of combining marks longer than MAX_COMBINING_RUN.
  */
 export function normalizeText(text: string): string {
-  return text
+  const wellFormed = text
     .replace(/^﻿/, "")
     .replace(/\r\n?/g, "\n")
-    .toWellFormed()
-    .normalize("NFC")
-    .replace(CONTROL_CHARS, "");
+    .toWellFormed();
+  if (LONG_COMBINING_RUN.test(wellFormed)) throw new CombiningRunError();
+  return wellFormed.normalize("NFC").replace(CONTROL_CHARS, "");
 }
 
 /** Length in characters (code points), as PostgreSQL's varchar and the zod schemas count. */
@@ -129,7 +143,8 @@ export async function readPdfText(
       if (!text.add(page)) return { reason: "TEXT_TOO_LONG" };
     }
     return { text: text.text };
-  } catch {
+  } catch (error) {
+    if (error instanceof CombiningRunError) return { reason: "UNUSUAL_TEXT" };
     // Parser errors can quote the file, so only the reason leaves the child.
     return { reason: "UNREADABLE_PDF" };
   } finally {
