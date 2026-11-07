@@ -90,9 +90,7 @@ Aborting a request doesn't stop code that is already waiting on it: after every 
 
 ## T26 · Practice weakest flow (#26) · Nov 5, 2026
 
-<!-- needs-review -->
-
-**What I built:** A "Practice weakest" link on the course page and the concept map that opens `/courses/[courseId]/practice/weakest`. There, `weakest-practice.tsx` asks the API for the concept I'm weakest at, shows its name and mastery state, and runs the usual question → answer → feedback loop, where "Next concept" picks the next weakest one. It handles a course with nothing to practise yet, an API error (with Try again), a missing course or bad id, and leaving the page mid-request. The dev mock for next-concept now cycles through the course's concepts.
+**What I built:** A "Practice weakest" link on the course page and the concept map that opens `/courses/[courseId]/practice/weakest`. There, `weakest-practice.tsx` asks the API for the concept I'm weakest at, shows its name and mastery state, and runs the usual question → answer → feedback loop, where "Next concept" picks the next weakest one. It handles a course with nothing to practise yet, an API error (with Try again), a friendly message when rate-limited, a missing course or bad id, and leaving the page mid-request. The dev mock for next-concept now cycles through the course's concepts.
 
 **Skills & tools:** Next.js App Router, React state and effects, `AbortController`, openapi-fetch, Vitest, Testing Library
 
