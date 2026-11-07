@@ -4,6 +4,7 @@
 // the model returns is checked: unknown chunk ids, self-edges and dangling edges are dropped,
 // concepts are merged by normalized name, and a document keeps at most 15.
 import { z } from "zod";
+import { cut, escapeAttribute, escapeText } from "./prompt-data";
 import { generateJson } from "./provider";
 
 /** Note characters per model call (about 15k tokens), so a call stays well inside the context. */
@@ -62,11 +63,6 @@ Return 8 to 15 concepts that the notes actually explain. For each concept:
 
 Also return edges between your concepts: { from, to } when understanding "from" helps a student understand "to". Use the concept names exactly as you wrote them. Leave edges out when unsure.`;
 
-const escapeText = (value: string) =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const escapeAttribute = (value: string) =>
-  escapeText(value).replace(/"/g, "&quot;");
-
 /** The prompt for one batch: the system rules, and the chunks as escaped data. */
 export function buildPrompt(
   title: string,
@@ -83,9 +79,6 @@ export function buildPrompt(
     user: `<document title="${escapeAttribute(title)}">\n${chunks}\n</document>`,
   };
 }
-
-/** Cuts text to at most `max` characters (code points). */
-const cut = (text: string, max: number) => [...text].slice(0, max).join("");
 
 /** Control characters (PostgreSQL refuses NUL in text) become spaces in anything the model wrote. */
 const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");

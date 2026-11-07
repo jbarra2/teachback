@@ -489,3 +489,27 @@ A browser walk of the concept map with real concepts showed a page that never lo
 
 **What I learned:**
 A comparison only means something if the runs differ in one thing: my "with CSP" and "without CSP" runs also differed in cache warmth. Mutation testing also caught two tests passing for the wrong reason: one 413 came from a different limit than the one under test, and a "runs once" test only counted rows that a rollback would have left the same.
+
+## T17 · Question generation endpoint (#17) · Nov 6, 2026
+
+**What I built:** `POST /api/concepts/{id}/question`, which asks Claude for one practice question about a concept, answerable from that concept's notes, and saves it.
+
+- `src/lib/ai/generate-question.ts`: the prompt (the concept, the last five questions and the notes, all escaped as untrusted data with short source ids the server makes), a notes budget, and a schema that refuses a question citing none of the notes it was given, so that counts as unusable output: retried once, then a 502.
+- `src/lib/services/questions.ts`: loads the concept only through a course I own, with its notes in order and its last five questions, runs the AI step under a 90-second deadline, and saves the question with the chunks it cites.
+- Moved the escaping helpers and the deadline into `src/lib/ai/`, so T12 and T17 share them.
+
+**Skills & tools:** structured output with zod refinements (checked after the reply, not sent to the model), prompt-injection defences, Vitest module mocks and fake timers, mutation testing, live checks against `next start`
+
+**Asked Claude for:** Take T17 over from the AI track after T12, with a note to hsheik20 on the issue, and only T17 before checking in again.
+
+**Decided / dropped:**
+
+- Put the "cites at least one given chunk" rule in the schema passed to `generateJson`, as PLAN §8 says, so a miss is retried once like any bad output. I checked first that the SDK accepts a refined schema: the rule is left out of the JSON schema sent to Claude but still enforced on the reply.
+- A concept with no linked notes reads as not found, since there's nothing to ask from.
+- One 90-second deadline for the whole AI step, so a slow failure and its retry can't make the student wait two full timeouts.
+
+**Hardest part, and how I solved it:**
+Making sure only this concept's notes reach the prompt. Concepts share documents, so a query that loaded the document's chunks instead of the concept's links would leak another concept's notes into the question. I loaded the chunks through the concept's own links and wrote a test with a second concept in the same document whose notes must never appear in the prompt.
+
+**What I learned:**
+A refinement on a zod schema is a neat way to make "unusable" model output retry without extra code, but it only works because the provider validates the reply itself. I checked the library's behaviour before relying on it rather than assuming.
