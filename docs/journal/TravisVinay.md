@@ -88,27 +88,26 @@ Proving the "ignore a late answer" guard in the course page. My first test passe
 **What I learned:**
 Aborting a request doesn't stop code that is already waiting on it: after every `await` in an effect, check whether it was cancelled before setting state. And a regression test only counts once you've seen it fail without the fix.
 
-## T23 · Feedback display UI (#23) · Nov 5, 2026
+## T23 · Feedback display UI (#23) · Nov 7, 2026
 
 <!-- needs-review -->
 
 **What I built:** The full feedback view a student sees after answering a question, in `src/components/practice/feedback-display.tsx`. It shows the verdict, a confidence badge, the mastery chip, what they got right and what's missing, and the quotes from their notes with each one's source label. It adds a "Couldn't verify this against your notes" banner when the evidence check failed or confidence is LOW, and a "Goes beyond your notes" note when the answer used material the notes don't cover. It replaces T16's short feedback summary. A new test also scans every file under `src/` for raw-HTML rendering.
 
-**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`), git branching and merging, the GitHub CLI
+**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`), Next.js type generation, git branching and merging, the GitHub CLI
 
-**Asked Claude for:** To find my next task and pick up T23, then to test it, run a security review and ship it. When the work turned out to already exist on an unpushed branch, I had Claude verify that branch instead of rebuilding it.
+**Asked Claude for:** To find my next task, which turned out to be T23, then to start, test, security-review and ship it. Since the work already existed on an unpushed local branch, I had Claude verify and ship that branch instead of rebuilding it, and I asked for a fresh journal entry.
 
 **Decided / dropped:**
 
-- Put the banner rules in a small pure function (`feedbackNotices`) so every combination of `unsupported`, confidence and `outsideNotes` could be tested as a table.
+- Put the banner rules in a small pure function (`feedbackNotices`) so every combination of `unsupported`, confidence and `outsideNotes` is tested as a table.
 - Made the confidence badge say the level in words ("Confidence: Low") so it doesn't rely on color alone.
 - Tested "the answer renders literally" through the practice session, where the answer is already shown, instead of adding a second "Your answer" block to the feedback card.
 - Added a test that scans `src/` for `dangerouslySetInnerHTML` as a backstop for the lint rule, building the forbidden string from two parts so the test doesn't flag itself.
-- Kept my original branch and dropped the empty duplicate branch that `gh issue develop` created, so the PR comes from the branch that has the work.
-- Left the failing PDF ingest tests to the AI track's owner instead of fixing them here, because that code isn't in my track and isn't changed by this branch.
+- Kept my original branch with the work and dropped the empty duplicate branch that `gh issue develop` had created.
 
 **Hardest part, and how I solved it:**
-The code was finished, but nothing would push: the pre-push hook runs the fast checks, and five PDF-extraction tests failed every time on my Windows machine. I reran just those two test files to rule out a slow machine, then compared `src/lib/ingest` with `main` and found it identical, so my branch didn't cause it. The failures are Windows-specific: the child process exits with no `SIGABRT`/`SIGKILL` signal code, and a path check expects forward slashes. I reported it to the owner instead of weakening the tests.
+After merging `main` into the branch, the typecheck failed with errors about a missing `practice/weakest/page.js`, a page my branch never touched. The error pointed into `.next/dev/types`, which the dev server had generated while I was on my T26 branch, where that page exists. Deleting that generated folder (it's gitignored and rebuilt automatically) fixed it without changing any code, and the full `npm run verify` then passed.
 
 **What I learned:**
-Before blaming my own change for a red test run, I check whether the failing code differs from `main` at all; that turned a confusing failure into a clear handoff. I also learned that `gh issue develop` makes a new branch even when one already exists for the issue, so I should look for existing branches first.
+When a type error points at a file my branch doesn't have, I check whether it comes from generated output left over from another branch before touching code. I also learned that `gh issue develop` makes a new branch even when one already exists for the issue, so I look for existing branches first.
