@@ -17,3 +17,14 @@ The dev server only listens on your own machine. To try it on a phone on the sam
 - Spec and schedule: [docs/PLAN.md](docs/PLAN.md)
 - Testing and security: [docs/TESTING.md](docs/TESTING.md)
 - API contract: [openapi/openapi.yaml](openapi/openapi.yaml)
+
+## Demo accounts
+
+`npm run setup` loads demo data with `npm run db:seed`. You can run it again at any time: it never resets the demo accounts' progress or changes a password. These accounts exist only in your local database, and the seed refuses to run in production.
+
+| Account        | Email                   | Password          | Has                                                                        |
+| -------------- | ----------------------- | ----------------- | -------------------------------------------------------------------------- |
+| Demo student A | `demo-a@teachback.test` | `demo-password-a` | A course with sorting-algorithm notes, 5 concepts and 2 practice questions |
+| Demo student B | `demo-b@teachback.test` | `demo-password-b` | A small course of their own, for cross-user checks                         |
+
+If you already signed up with one of these emails using a different password, the seed leaves that account alone and says so. Delete it yourself if you want the demo account back.
