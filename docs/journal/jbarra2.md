@@ -361,3 +361,155 @@ I couldn't reproduce the failures: two and then three concurrent test runs all p
 
 **What I learned:**
 `spawnSync` blocks the worker, so a test-runner timeout can only report an overrun after the fact; the child needs its own timeout. But adding a timeout for safety can change what a test accepts: an assertion that only checks "didn't succeed" also passes for a process the test itself killed. Now I check what a killed process returns before relying on that kind of assertion.
+
+## T45 · Cut deployment from the plan (#72) · Nov 5, 2026
+
+**What I built:** Took the deployment stretch goal (T31, Vercel + Neon) out of the plan. The project now ships as the public repo plus a README that explains how to set it up and run it locally.
+
+- `docs/PLAN.md`: the deliverable, stack, folder list, environments, schedule, cut list, backlog table and risks no longer mention a deployment. It's listed under "Cut to fit the schedule" instead.
+- `docs/DEPLOY.md` is deleted. The one test comment that pointed to it now states the rule itself.
+- `scripts/backlog.json`: T31 is removed. T33's README criteria now spell out local setup (prerequisites, `npm run setup`, fake or real AI, stopping the databases, common setup problems) and a fresh-clone test on Windows and macOS. T34 no longer mentions a live URL.
+- On GitHub: #31 is closed as not planned, and #33 and #34 match `backlog.json`.
+
+**Skills & tools:** Scope planning, GitHub CLI (issues, linked branches), git worktrees, Prettier
+
+**Asked Claude for:** Cut deployment from the plan, because it isn't realistic before the freeze and isn't worth squeezing in, and finish instead with a clean README that explains local setup. I approved Claude's plan, and asked for a full verify run first to see what was failing.
+
+**Decided / dropped:**
+
+- Cut the deployment completely instead of leaving it as a stretch goal, so Friday goes to integration (T28) and reviews.
+- Deleted `docs/DEPLOY.md` rather than keep a guide nobody will follow. Git history still has it.
+- Kept the settings that are general hardening rather than deployment steps (`DIRECT_URL`, the trusted IP header, API docs off by default), since they still matter to anyone who runs the app.
+- The fresh-clone test runs on both Windows and macOS, because the team uses both, and a Windows-only test failure had just blocked pushes.
+- Worked in a separate git worktree, because T43 was still uncommitted on its own branch.
+
+**Hardest part, and how I solved it:**
+Finding every place that assumed a deployment. It wasn't only the plan: the issue seed file, three issue bodies, a test comment and the deploy guide all pointed to it, and nothing regenerates existing issues from `backlog.json`. I searched the repo for every mention first, then rebuilt each issue's acceptance criteria from the edited `backlog.json` entry, so the plan, the seed file and GitHub agree.
+
+**What I learned:**
+Cutting scope is a change like any other: the plan, the task list and the tracker all have to agree, or someone keeps building toward a goal that's gone. Saying what replaces the cut work, a README someone can follow on a fresh clone, makes the end of the project clearer than deleting a line.
+
+## T43 · Non-null session user in withApi handlers (#65) · Nov 6, 2026
+
+**What I built:** `withApi` now types the signed-in user from the `auth` option, so handlers on routes that need a session no longer write `user!.id`.
+
+- `src/lib/api/with-api.ts`: two overloads. The default (or `auth: true`) gives handlers a `SessionUser`. `auth: false`, or an `auth` only known as a boolean, gives `SessionUser | null`. `ApiContext` takes the user type as a second parameter, with `SessionUser` as its default. The runtime code is unchanged: with no session the request still gets a 401 before the handler runs.
+- `src/lib/api/with-api.types.test.ts`: a type-level test that fails `npm run typecheck` if `user` has the wrong type. It also checks that a handler needing a user is refused on a route with `auth: false` or a plain boolean.
+- The five courses, map and next-concept routes from T13 and T21 drop their `user!`. `auth-route.ts` and `with-api.test.ts` now say outright that their user may be null.
+
+**Skills & tools:** TypeScript function overloads, Vitest `expectTypeOf` type tests, mutation testing on types, live HTTP checks against the test database, code and security reviews
+
+**Asked Claude for:** Build T43 with tests first. Then I held it back until the Windows test fix (T44) merged, and asked Claude to finish it: merge `main`, verify, run `/security-review` and open the PR.
+
+**Decided / dropped:**
+
+- Keyed the overloads on the existing `auth` option, so no route had to change how it calls `withApi`.
+- Kept the one cast inside `withApi` itself, type-only and commented, so the routes need none.
+- Dropped a third overload after a mutation run showed that removing it broke no test: it was redundant.
+- Waited to push until T44 merged rather than fixing T10's Windows tests myself, since those files belong to the AI track.
+
+**Hardest part, and how I solved it:**
+Proving the types were really checked. A type test that only checks the happy path passes even when the overloads are too loose, so I added a check that a handler needing a user is refused with `auth: false`. Then I paired it with the same check on `auth: true`, which must pass, so the refusals couldn't be vacuous. To mutation-test types I had to wrap `tsc` in a script that fails only on errors in the type-test file, because the mutation tool treats any type error as a broken build.
+
+**What I learned:**
+Overloads are a clean way to make one option change a handler's types, but a test has to check what they refuse as well as what they accept. Running mutations on the overloads themselves showed one of them did nothing, which a review alone wouldn't have caught.
+
+## T14 · Security baseline: rate limiting, CSP/headers, safe logging, health check (#14) · Nov 6, 2026
+
+**What I built:** The app's security baseline: rate limits, security headers with a nonce CSP, log redaction and a health check.
+
+- `src/lib/rate-limit.ts`: fixed-window limits counted in PostgreSQL with one atomic upsert per window. AI requests have per-user minute and day limits plus a global daily cap; uploads have an hourly limit. `withApi({ rateLimit })` answers 429 with `Retry-After`, and fails closed when it can't count.
+- `src/lib/api/security-headers.ts`, `src/proxy.ts`, `next.config.ts`: nosniff, referrer and permissions policies, frame denial and production-only HSTS on every response; a per-request nonce CSP on pages; a locked-down CSP on API responses; and a CSP for the API docs that allows only the pinned Scalar bundle.
+- `src/lib/log.ts`: redaction by field name and by what secrets look like, and note or answer text is never written.
+- `GET /api/health`: `{ status, db }` with a 2-second database timeout.
+- The route coverage test now checks each route's rate limit against the spec's `x-rate-limit`.
+
+**Skills & tools:** Content Security Policy with nonces and `'strict-dynamic'`, Next.js proxy and dynamic rendering, PostgreSQL `INSERT … ON CONFLICT` for atomic counters, Vitest fake timers and module mocks, mutation testing, a headless-browser walk, independent security and test reviews
+
+**Asked Claude for:** Start T14 before T12 merged, since only the upload rate-limit test depends on it. I granted a one-line exception in the root layout and handed the upload S6 test to T12. Then I asked Claude to finish it on its own, keep an eye on teammates' updates, and notify me when it needed a decision.
+
+**Decided / dropped:**
+
+- Counted each window only when the earlier ones allowed the request, so a user spamming past their own limit can't use up the global AI cap for everyone.
+- Rendered every page per request (`await connection()` in the root layout). Prerendered pages have no nonce, and a browser walk showed all their scripts blocked.
+- Allowed `'unsafe-inline'` for styles only, because React and the concept map set style attributes; scripts stay nonce-only.
+- Dropped a CSP for unknown `/api` paths in `next.config.ts`: a config header wins over a route's own, so it would have replaced the docs page's CSP.
+
+**Hardest part, and how I solved it:**
+A random bug in the docs page. The live check failed on `/api/docs` once and then passed. The page's integrity check refuses any outside URL, and a base64 nonce can contain `//`, which looks like the start of a URL, so roughly one request in 200 got a 500. I forced such a nonce in a test to reproduce it, then left the response's own nonce out of the scan. A reviewer then showed my first version of the test could pass without forcing the nonce, so I switched to a module mock and proved the test fails without the fix.
+
+**What I learned:**
+A CSP nonce only works if every page is rendered per request; a statically built page silently loses all its scripts, which unit tests can't see. I also learned to treat test reviews as seriously as security reviews: they found that my limiter was never tested failing closed on its own and that the sweep could have deleted live windows unnoticed, and mutation runs confirmed both before I fixed them.
+
+## T10 follow-up · Text uploads: NFC normalization can block the event loop on long combining-mark runs (#69) · Nov 6, 2026
+
+**What I built:** Uploaded and pasted notes with more than 30 combining marks in a row are now refused before normalization, which takes quadratic time on such runs and blocked the server.
+
+- `src/lib/ingest/pdf-child.ts`: `normalizeText` checks for a run longer than `MAX_COMBINING_RUN` (30, the Stream-Safe Text Format limit from UAX #15) before calling `.normalize("NFC")`. The PDF child answers `UNUSUAL_TEXT` for such a page.
+- `src/lib/ingest/extract-text.ts` and `errors.ts`: `normalizeNoteText` turns it into a 422 with a fixed message, and the parent accepts the child's new reason.
+- The BOM is now matched as `﻿` instead of an invisible literal.
+
+**Skills & tools:** Unicode normalization and combining marks (UAX #15), measuring algorithmic complexity, mutation testing
+
+**Asked Claude for:** Take this over from the AI track so T12 can expose uploads safely tonight, in its own small PR.
+
+**Decided / dropped:**
+
+- Checked the raw text with one linear regex before normalizing, rather than normalizing in pieces, because any normalization of the run is the slow part.
+- Used 30, the limit Unicode itself recommends, so real text in any language passes.
+
+**Hardest part, and how I solved it:**
+Proving the problem before fixing it. I timed NFC on growing runs of mixed accents: 10,000 marks took 38 ms, 50,000 took 941 ms and 100,000 took 3.7 s, so a 200,000-character note would freeze the server for about 15 seconds. A test with that input took 8 seconds before the fix and returns at once after it. A mutation run then showed that one test path was missing: nothing noticed if the parent stopped accepting the child's new reason, so I added a test for it.
+
+**What I learned:**
+A standard library call can have worst-case behaviour that only shows up with adversarial input, so input limits need to cover cost, not only size. Unicode's own Stream-Safe limit made a natural, defensible cut-off.
+
+## T12 · Documents API + processing pipeline (#12) · Nov 6, 2026
+
+**What I built:** Uploading notes and turning them into concepts: the upload and status endpoints, concept extraction with Claude, and a pipeline that saves everything at once or not at all.
+
+- `POST /api/documents`: a multipart upload of a .txt, .md or .pdf file, or pasted text, to one of my courses. It's rate limited, refuses a request with no `Content-Length` or over 4 MB before reading it, refuses a field sent twice, checks the course is mine before reading the file, and answers 202 while processing runs after the response.
+- `GET /api/documents/{id}`: the status (a document stuck for 10 minutes reads as FAILED) and how many concepts it produced.
+- `src/lib/ai/extract-concepts.ts`: the prompt (notes as escaped, untrusted `<chunk>` data with short ids the server makes), batches capped by characters, and checks on everything the model returns: unknown chunk ids and dangling edges dropped, names merged, at most 15 concepts.
+- `src/lib/services/documents.ts`: processing claims the document once, calls the AI outside any transaction, then saves chunks, concepts, links and edges in one transaction, with an atomic `INSERT … ON CONFLICT` so uploads to the same course merge concepts instead of failing. Any failure stores a fixed message.
+
+**Skills & tools:** multipart parsing within a byte limit, PostgreSQL `INSERT … ON CONFLICT` and transactions, prompt-injection defences (escaping, server-made ids), Vitest module mocks, mutation testing, live tests against `next start`, headless-browser walks
+
+**Asked Claude for:** Take T12 over from the AI track, with hsheik20 told on the issue, because T17, T22, T24 and T28 were all waiting on it and the freeze is tonight. Fix #69 first in its own PR, then build T12 with tests first.
+
+**Decided / dropped:**
+
+- Gave the model short chunk ids (`c1`, `c2`, …) made by the server and mapped them back after saving, so the model never sees or picks a database id.
+- Replaced Prisma's `upsert` with a raw `INSERT … ON CONFLICT` after the concurrent-upload test failed: Prisma looked first and then inserted, so two uploads naming the same concept collided on the unique key.
+- Capped a document at 15 concepts, keeping the ones linked to the most chunks, so the concept map stays readable and bounded.
+- Checked course ownership before reading the file, so another user's course costs no parsing.
+
+**Hardest part, and how I solved it:**
+A browser walk of the concept map with real concepts showed a page that never loaded, and turning the new CSP off appeared to fix it, which pointed at yesterday's T14. Before changing anything I narrowed it down directive by directive, then reran the walk with the real CSP on a warm dev server: the map rendered perfectly. The first runs had caught the dev server compiling the map's libraries from cold, and the "fix" only worked because the cache was warm by then. I also scanned the production chunks for `eval`, since production's CSP doesn't allow it, and found none.
+
+**What I learned:**
+A comparison only means something if the runs differ in one thing: my "with CSP" and "without CSP" runs also differed in cache warmth. Mutation testing also caught two tests passing for the wrong reason: one 413 came from a different limit than the one under test, and a "runs once" test only counted rows that a rollback would have left the same.
+
+## T17 · Question generation endpoint (#17) · Nov 6, 2026
+
+**What I built:** `POST /api/concepts/{id}/question`, which asks Claude for one practice question about a concept, answerable from that concept's notes, and saves it.
+
+- `src/lib/ai/generate-question.ts`: the prompt (the concept, the last five questions and the notes, all escaped as untrusted data with short source ids the server makes), a notes budget, and a schema that refuses a question citing none of the notes it was given, so that counts as unusable output: retried once, then a 502.
+- `src/lib/services/questions.ts`: loads the concept only through a course I own, with its notes in order and its last five questions, runs the AI step under a 90-second deadline, and saves the question with the chunks it cites.
+- Moved the escaping helpers and the deadline into `src/lib/ai/`, so T12 and T17 share them.
+
+**Skills & tools:** structured output with zod refinements (checked after the reply, not sent to the model), prompt-injection defences, Vitest module mocks and fake timers, mutation testing, live checks against `next start`
+
+**Asked Claude for:** Take T17 over from the AI track after T12, with a note to hsheik20 on the issue, and only T17 before checking in again.
+
+**Decided / dropped:**
+
+- Put the "cites at least one given chunk" rule in the schema passed to `generateJson`, as PLAN §8 says, so a miss is retried once like any bad output. I checked first that the SDK accepts a refined schema: the rule is left out of the JSON schema sent to Claude but still enforced on the reply.
+- A concept with no linked notes reads as not found, since there's nothing to ask from.
+- One 90-second deadline for the whole AI step, so a slow failure and its retry can't make the student wait two full timeouts.
+
+**Hardest part, and how I solved it:**
+Making sure only this concept's notes reach the prompt. Concepts share documents, so a query that loaded the document's chunks instead of the concept's links would leak another concept's notes into the question. I loaded the chunks through the concept's own links and wrote a test with a second concept in the same document whose notes must never appear in the prompt.
+
+**What I learned:**
+A refinement on a zod schema is a neat way to make "unusable" model output retry without extra code, but it only works because the provider validates the reply itself. I checked the library's behaviour before relying on it rather than assuming.

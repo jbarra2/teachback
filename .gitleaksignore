@@ -1,0 +1,6 @@
+# Fake session-cookie values in src/lib/log.test.ts (redaction test fixtures) in two commits of
+# PR #76. Squash-merging replaces both commits; the fixtures were changed to values scanners skip.
+e8ca7abaf4f02ff069bb6551c829c88590c03ff6:src/lib/log.test.ts:generic-api-key:185
+e8ca7abaf4f02ff069bb6551c829c88590c03ff6:src/lib/log.test.ts:generic-api-key:190
+725a08797ab51e506a3f4db7edf5bb45590b8f70:src/lib/log.test.ts:generic-api-key:185
+725a08797ab51e506a3f4db7edf5bb45590b8f70:src/lib/log.test.ts:generic-api-key:190

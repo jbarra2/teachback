@@ -364,6 +364,27 @@ describe("extractText: limits", () => {
 });
 
 describe("normalizeNoteText", () => {
+  it("#69: refuses a long run of combining marks as unreadable (422), with a fixed message", () => {
+    const run = "a" + "́̀".repeat(50_000);
+    let error: unknown;
+    try {
+      normalizeNoteText(`My notes ${run}`);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(IngestError);
+    expect(error).toMatchObject({
+      code: "UNREADABLE_FILE",
+      status: 422,
+      reason: "UNUSUAL_TEXT",
+    });
+    expect((error as Error).message).not.toContain("My notes");
+  });
+
+  it("#69: still accepts accented text", () => {
+    expect(normalizeNoteText("résumé naïve")).toBe("résumé naïve");
+  });
+
   it("normalizes to NFC", () => {
     const nfd = "café résumé";
     expect(normalizeNoteText(nfd)).toBe("café résumé");

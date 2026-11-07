@@ -32,9 +32,13 @@ const ABSOLUTE_URL = /(?:[a-z][a-z0-9+.-]*:)?\/\/[^\s"'`<>()]+/gi;
  * keeping any attributes after `src` (a CSP nonce, T14). Returns null, so the route fails closed,
  * unless the pinned bundle is the page's only absolute URL and its tag appears exactly once: a
  * later Scalar release that loads anything else is refused rather than served unchecked.
+ *
+ * `nonce` is this response's CSP nonce, which the server made. It's base64, so it can contain
+ * "//": it's left out of the URL scan, or about one page in 200 would be refused.
  */
-export function withIntegrity(html: string): string | null {
-  const urls = new Set(html.match(ABSOLUTE_URL));
+export function withIntegrity(html: string, nonce?: string): string | null {
+  const scanned = nonce ? html.split(nonce).join("") : html;
+  const urls = new Set(scanned.match(ABSOLUTE_URL));
   if (urls.size !== 1 || !urls.has(SCALAR_BUNDLE_URL)) return null;
   const tag = `<script src="${SCALAR_BUNDLE_URL}"`;
   if (html.split(tag).length !== 2) return null;

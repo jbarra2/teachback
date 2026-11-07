@@ -74,3 +74,48 @@ Making the randomized test prove something. A "fabricated" quote built from word
 
 **What I learned:**
 Checking that a quote "appears in the notes" sounds simple, but the result depends on how you clean up the text first. Normalization smooths over formatting differences, and it can also hide details: the security review pointed out that NFKC turns `10⁵` into `105`. A quote being in the notes doesn't automatically make it good evidence either, which is why a one- or two-word quote is now rejected. And I learned that TypeScript's `Omit` on a type with an index signature erases its known keys, so the result type has to name the important fields explicitly.
+
+## T11 · Chunker (#11) · Nov 4, 2026
+
+**What I built:** `chunk(text, title)` in `src/lib/ingest/chunk.ts`, which splits note text into the numbered passages that concepts, questions and evidence cite. It finds Markdown headings (ignoring `#` lines inside code blocks), or, for plain text and PDFs, short heading-like lines after a blank line or a finished sentence. It packs text into chunks of up to 400 words or 4,000 characters, merging small sections forward until a chunk reaches about 150 words, and labels each one like `Week 4 › TCP ¶2`. Every chunk is an exact slice of the notes, so nothing is rewritten or dropped except the whitespace between chunks, and a document over 300 chunks throws a typed `IngestError` (`TOO_MANY_CHUNKS`). Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results.
+
+**Skills & tools:** TypeScript (function overloads, mapped and conditional types), `Intl.Segmenter` (grapheme clusters), Unicode, Vitest (seeded randomized tests, spies, coverage), mutation testing by hand, Claude Code
+
+**Asked Claude for:** A plan with tests for T11, then the implementation once I'd chosen to merge small sections, on the condition that it didn't cost citation accuracy: a merged chunk's label couldn't credit everything to its first heading, and content had to be rejected, never silently dropped. After the first version I raised two concerns: headings left alone at the very end of the notes, and `chunk.ts` importing from the extraction module just to throw an error. Then I ran `/test-task`, had Claude walk me through the manual checks one step at a time, and ran `/security-review` with six focus areas. Last, I approved a small fix for the label performance problem the review found and had Claude draft a GitHub issue for an upstream problem it uncovered.
+
+**Decided / dropped:**
+
+- When small sections merge, the label names the range, like `Week 4 › Intro ¶1 – Summary`, so a citation never points only at the first heading. The `¶n` counts chunks within a heading, so two chunks from the same section stay distinguishable.
+- Above 300 chunks, T11 throws a typed `IngestError` (`TOO_MANY_CHUNKS`) with a fixed message asking the student to split the file, so the upload flow can reject it. I chose this over keeping the first 300, for the same reason as T10's page limit: silent truncation would hide missing notes.
+- Long paragraphs split at sentences, then words, then grapheme clusters, so an emoji or an accented letter is never cut in half. One unbreakable cluster (thousands of combining marks) can still exceed 4,000 characters. I accepted that as a documented exception rather than break a character.
+- A heading at the very end of the notes now joins the chunk before it, when that still fits, instead of becoming a chunk with nothing to cite.
+- I moved `TOO_MANY_CHUNKS` into the ingest error list so `chunk.ts` only depends on `errors.ts`. A typed constructor overload lets reasons with fixed messages be thrown without the limits, and the compiler rejects the others.
+- Words hyphenated across line breaks in PDFs are kept as extracted. Fixing them is a text-cleanup follow-up, not part of chunking.
+
+**Hardest part, and how I solved it:**
+Proving that nothing was lost, duplicated or reordered. A single check rebuilds the original notes from the chunks plus whitespace, and it runs on every test, on the real fixtures and on 300 randomized documents with fixed seeds. Getting the timing tests to catch slow code was harder than it looked: the hostile-input test first passed even when a slow regex was put back in, so we rebuilt it with a 150,000-space line, where the slow version takes about 14 s against a 3-second limit. The heavy tests also have 60-second timeouts; those don't weaken the limit, they only stop a busy machine from failing them. The security review then found that a heading close to the note limit was cleaned up again for every chunk, about 650 ms of blocking CPU. Doing it once per section brought that down to about 40 ms, with byte-identical output across 34,000 chunks, and the regression test counts how often the heading is cut instead of timing it, so it can't flicker under load.
+
+**What I learned:**
+Citation accuracy is a design decision: merging small sections makes better chunks, but the label has to say what was merged, or the feedback points students to the wrong part of their notes. JavaScript strings don't always treat what we see as one character as a single unit. Some emoji and accented characters consist of multiple parts, so I learned why splitting at grapheme boundaries matters. And a security review can find problems upstream: reviewing my chunker found that my T10 code runs NFC normalization before the length check, and a note-sized input blocked the server for about 12 s. I documented the issue in #69 instead of expanding T11's scope, so Jonathan can decide whether it needs to be fixed before T12 introduces uploads.
+
+## T44 · Make PDF child-process tests pass on Windows (#68) · Nov 5, 2026
+
+**What I built:** Cross-platform versions of the five T10 tests that failed on Windows, which blocked every push from a Windows machine because the pre-push hook runs them. In `src/lib/ingest/extract-text.child.test.ts` and `extract-text.limiter.test.ts`, a small `expectEndedBy` helper checks how a child process ended: the exact signal on Linux and macOS, as before, and no signal with a non-zero exit code on Windows, which doesn't report POSIX termination signals the way Linux and macOS do. The fork-path check now compares the full platform path. No production code changed. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results.
+
+**Skills & tools:** Node `child_process` (exit codes vs. signals), cross-platform paths (`node:path`), Vitest (annotations, platform-specific assertions), mutation testing by hand, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T44 that showed the exact Windows failures before any code was written, then a read-only search for whether Jonathan had already posted his Windows output (he hadn't). I chose to go ahead without it, following the issue's "non-zero exit code" rule rather than assuming exact codes, and asked for the server-death test to be handled without guessing how Windows behaves.
+
+**Decided / dropped:**
+
+- Windows tests check for a non-null, non-zero exit code instead of exact codes (134 for an abort, 1 for a kill). Those numbers come from how Node and libuv usually behave, but nobody had seen them on our machines. The trade-off is that Windows can't tell an abort from a kill; Linux and macOS still can.
+- Linux and macOS stay at least as strict: they now require `{ code: null, signal }` exactly, and the fork-path check is an exact match instead of a suffix.
+- Windows may end a child along with its parent, but I couldn't confirm that. So on Windows the server-death test records whether the child survived as a test annotation, and still requires it to be gone within 8 seconds. Linux and macOS still assert that the child outlives the server.
+- Production code is unchanged. It already treats any exit without an answer as a failure and never uses the signal to choose the error, and existing tests already cover Windows-style exits.
+- Dropped a suggestion from the security review to also reject exit code 1 on Windows, because it relied on an exit code we hadn't observed.
+
+**Hardest part, and how I solved it:**
+Fixing tests for a platform I couldn't run. The issue didn't include Jonathan's actual failure output, so we first checked the issue, the T10 PR and CI for it, and found that CI only runs on Linux. From then on we separated what was confirmed from what was assumed. To make sure the Linux and macOS checks still had teeth, we broke the watchdog on purpose: it sent SIGTERM, ignored the deadline, or treated an invalid deadline as no deadline, and each break made a test fail. A temporary copy of the tests that pretended to be Windows showed that the Windows checks accept and reject the right exit shapes. All the tests passed on my Mac, but the final confirmation still needs to come from running them on Windows.
+
+**What I learned:**
+Windows doesn't report POSIX termination signals the way Linux and macOS do: a process killed or aborted there shows up as an exit code with no signal, so tests that assert a signal only work on Linux and macOS. Paths differ too: `path.join` gives backslashes on Windows, so comparing against the same `path.join` call is more reliable than matching a hard-coded suffix. And when I can't test on a platform, it's better to have the test record what happens there than to assert behavior I've only read about.
