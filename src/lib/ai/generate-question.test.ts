@@ -98,6 +98,12 @@ describe("questionSchema", () => {
     expect(schema.safeParse(output([])).success).toBe(false);
   });
 
+  it("refuses text that is blank once control characters are removed", () => {
+    expect(schema.safeParse(output(["s1"], "\u0000\u0007 ")).success).toBe(
+      false,
+    );
+  });
+
   it("refuses an unknown kind and blank text", () => {
     expect(
       schema.safeParse({ ...output(["s1"]), kind: "TRIVIA" }).success,
@@ -196,6 +202,9 @@ describe("generateQuestion", () => {
     );
     const user = generateJson.mock.calls[0][1].user as string;
     expect(user.length).toBeLessThan(QUESTION_SOURCE_CHAR_BUDGET + 3_000);
+    // The chunk is sent, cut to exactly the budget.
+    const body = /<chunk id="s1"[^>]*>(z*)<\/chunk>/.exec(user)?.[1] ?? "";
+    expect(body).toHaveLength(QUESTION_SOURCE_CHAR_BUDGET);
   });
 
   it("lets the model cite only the chunks that were actually sent", async () => {

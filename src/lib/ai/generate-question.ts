@@ -31,6 +31,9 @@ export interface GeneratedQuestion {
   sourceKeys: string[];
 }
 
+/** Control characters (PostgreSQL refuses NUL) become spaces in anything the model wrote. */
+const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");
+
 /** The model's output, refused unless it cites at least one chunk it was given. */
 export function questionSchema(known: Set<string>) {
   return z
@@ -39,7 +42,7 @@ export function questionSchema(known: Set<string>) {
       kind: z.enum(QUESTION_KINDS),
       sourceChunkIds: z.array(z.string().max(100)).max(20),
     })
-    .refine((output) => output.text.trim() !== "", {
+    .refine((output) => withoutControls(output.text).trim() !== "", {
       message: "The question is empty.",
     })
     .refine((output) => output.sourceChunkIds.some((id) => known.has(id)), {
@@ -98,8 +101,6 @@ export function buildQuestionPrompt(
   ].join("\n\n");
   return { system: SYSTEM, user };
 }
-
-const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");
 
 export async function generateQuestion(
   concept: QuestionConcept,

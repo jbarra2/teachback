@@ -174,6 +174,87 @@ describe("POST /api/concepts/{id}/question", () => {
     ]);
   });
 
+  it("sends notes oldest document first, then in each document's order, however they were linked", async () => {
+    const course = await db.course.create({
+      data: { userId: ada.id, name: "Order" },
+    });
+    const doc = (title: string, createdAt: Date) =>
+      db.document.create({
+        data: {
+          courseId: course.id,
+          title,
+          sourceType: "TEXT",
+          rawText: "x",
+          status: "READY",
+          createdAt,
+        },
+      });
+    // The newer document is created first, and chunks are inserted in reverse order.
+    const newer = await doc("Week 2", new Date(Date.UTC(2026, 1, 1)));
+    const older = await doc("Week 1", new Date(Date.UTC(2026, 0, 1)));
+    const chunk = (documentId: string, order: number, refLabel: string) =>
+      db.chunk.create({
+        data: { documentId, order, text: refLabel, refLabel },
+      });
+    const made = [
+      await chunk(newer.id, 1, "W2 b"),
+      await chunk(newer.id, 0, "W2 a"),
+      await chunk(older.id, 1, "W1 b"),
+      await chunk(older.id, 0, "W1 a"),
+    ];
+    const concept = await db.concept.create({
+      data: {
+        courseId: course.id,
+        name: "Ordered",
+        nameKey: "ordered",
+        summary: "x",
+        chunks: {
+          create: [made[2], made[0], made[3], made[1]].map((c) => ({
+            chunkId: c.id,
+          })),
+        },
+      },
+    });
+    let sources: { refLabel: string }[] = [];
+    generation.override = async (_c, s) => {
+      sources = s as { refLabel: string }[];
+      return { text: "Why?", kind: "WHY", sourceKeys: ["s1"] };
+    };
+    expect((await ask(ada, concept.id)).status).toBe(200);
+    expect(sources.map((s) => s.refLabel)).toEqual([
+      "W1 a",
+      "W1 b",
+      "W2 a",
+      "W2 b",
+    ]);
+  });
+
+  it("the recent questions are this concept's own, never another concept's or user's", async () => {
+    const { concept } = await addConcept(ada);
+    const other = await addConcept(ada);
+    const hers = await addConcept(grace);
+    const q = (conceptId: string, text: string, day: number) =>
+      db.question.create({
+        data: {
+          conceptId,
+          text,
+          kind: "WHY",
+          sourceChunkIds: [],
+          createdAt: new Date(Date.UTC(2030, 0, day)),
+        },
+      });
+    await q(concept.id, "MINE", 1);
+    await q(other.concept.id, "OTHER-CONCEPT", 2);
+    await q(hers.concept.id, "OTHER-USER", 3);
+    let recent: string[] = [];
+    generation.override = async (_c, _s, r) => {
+      recent = r as string[];
+      return { text: "Why?", kind: "WHY", sourceKeys: ["s1"] };
+    };
+    await ask(ada, concept.id);
+    expect(recent).toEqual(["MINE"]);
+  });
+
   it("never sends another concept's notes, even from the same document", async () => {
     const { concept, document, course } = await addConcept(ada, 1);
     const other = await db.chunk.create({
