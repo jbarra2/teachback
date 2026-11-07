@@ -463,3 +463,29 @@ Proving the problem before fixing it. I timed NFC on growing runs of mixed accen
 
 **What I learned:**
 A standard library call can have worst-case behaviour that only shows up with adversarial input, so input limits need to cover cost, not only size. Unicode's own Stream-Safe limit made a natural, defensible cut-off.
+
+## T12 · Documents API + processing pipeline (#12) · Nov 6, 2026
+
+**What I built:** Uploading notes and turning them into concepts: the upload and status endpoints, concept extraction with Claude, and a pipeline that saves everything at once or not at all.
+
+- `POST /api/documents`: a multipart upload of a .txt, .md or .pdf file, or pasted text, to one of my courses. It's rate limited, refuses a request with no `Content-Length` or over 4 MB before reading it, refuses a field sent twice, checks the course is mine before reading the file, and answers 202 while processing runs after the response.
+- `GET /api/documents/{id}`: the status (a document stuck for 10 minutes reads as FAILED) and how many concepts it produced.
+- `src/lib/ai/extract-concepts.ts`: the prompt (notes as escaped, untrusted `<chunk>` data with short ids the server makes), batches capped by characters, and checks on everything the model returns: unknown chunk ids and dangling edges dropped, names merged, at most 15 concepts.
+- `src/lib/services/documents.ts`: processing claims the document once, calls the AI outside any transaction, then saves chunks, concepts, links and edges in one transaction, with an atomic `INSERT … ON CONFLICT` so uploads to the same course merge concepts instead of failing. Any failure stores a fixed message.
+
+**Skills & tools:** multipart parsing within a byte limit, PostgreSQL `INSERT … ON CONFLICT` and transactions, prompt-injection defences (escaping, server-made ids), Vitest module mocks, mutation testing, live tests against `next start`, headless-browser walks
+
+**Asked Claude for:** Take T12 over from the AI track, with hsheik20 told on the issue, because T17, T22, T24 and T28 were all waiting on it and the freeze is tonight. Fix #69 first in its own PR, then build T12 with tests first.
+
+**Decided / dropped:**
+
+- Gave the model short chunk ids (`c1`, `c2`, …) made by the server and mapped them back after saving, so the model never sees or picks a database id.
+- Replaced Prisma's `upsert` with a raw `INSERT … ON CONFLICT` after the concurrent-upload test failed: Prisma looked first and then inserted, so two uploads naming the same concept collided on the unique key.
+- Capped a document at 15 concepts, keeping the ones linked to the most chunks, so the concept map stays readable and bounded.
+- Checked course ownership before reading the file, so another user's course costs no parsing.
+
+**Hardest part, and how I solved it:**
+A browser walk of the concept map with real concepts showed a page that never loaded, and turning the new CSP off appeared to fix it, which pointed at yesterday's T14. Before changing anything I narrowed it down directive by directive, then reran the walk with the real CSP on a warm dev server: the map rendered perfectly. The first runs had caught the dev server compiling the map's libraries from cold, and the "fix" only worked because the cache was warm by then. I also scanned the production chunks for `eval`, since production's CSP doesn't allow it, and found none.
+
+**What I learned:**
+A comparison only means something if the runs differ in one thing: my "with CSP" and "without CSP" runs also differed in cache warmth. Mutation testing also caught two tests passing for the wrong reason: one 413 came from a different limit than the one under test, and a "runs once" test only counted rows that a rollback would have left the same.
