@@ -310,3 +310,41 @@ describe("extractConcepts with the fake provider", () => {
     expect(result.edges).toHaveLength(7);
   });
 });
+
+describe("extractConcepts: what the model writes is cleaned (review round 2)", () => {
+  const concept = (name: string, summary = "S.") => ({
+    name,
+    summary,
+    chunkIds: ["c1"],
+  });
+
+  it("turns control characters (NUL, which PostgreSQL refuses) into spaces", async () => {
+    generateJson.mockResolvedValue({
+      concepts: [concept("Cell\u0000Membrane", "One\u0000two\u0007three")],
+      edges: [],
+    });
+    const [only] = (await extractConcepts("T", [source("c1")])).concepts;
+    expect(only.name).toBe("Cell Membrane");
+    expect(only.nameKey).toBe("cell membrane");
+    expect(only.summary).toBe("One two three");
+  });
+
+  it("cuts the merge key after normalizing, so NFKC can't make it longer than a name", () => {
+    // U+FDFA becomes 18 characters under NFKC.
+    expect([...conceptNameKey("\uFDFA".repeat(20))]).toHaveLength(
+      MAX_CONCEPT_NAME_CHARS,
+    );
+  });
+
+  it("keeps an edge that names a concept by its full, over-long name", async () => {
+    const long = `${"L".repeat(MAX_CONCEPT_NAME_CHARS)} and more`;
+    generateJson.mockResolvedValue({
+      concepts: [concept(long), concept("B")],
+      edges: [{ from: long, to: "B" }],
+    });
+    const { edges } = await extractConcepts("T", [source("c1")]);
+    expect(edges).toEqual([
+      { from: "l".repeat(MAX_CONCEPT_NAME_CHARS), to: "b" },
+    ]);
+  });
+});

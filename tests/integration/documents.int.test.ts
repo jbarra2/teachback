@@ -178,6 +178,22 @@ describe("POST /api/documents: the pipeline", () => {
     60_000,
   );
 
+  it("an upper-case extension is read and typed the same (NOTES.MD → MARKDOWN)", async () => {
+    const course = await addCourse(ada);
+    const res = await upload(ada, {
+      courseId: course.id,
+      title: "Upper",
+      file: file(fixture("tcp-basics.md"), "NOTES.MD"),
+    });
+    const { id } = (await expectMatchesOpenApi(res, UPLOAD)) as { id: string };
+    expect(
+      await db.document.findUniqueOrThrow({ where: { id } }),
+    ).toMatchObject({
+      sourceType: "MARKDOWN",
+      status: "READY",
+    });
+  });
+
   it("two uploads with overlapping concepts merge into one set for the course", async () => {
     const course = await addCourse(ada);
     for (const title of ["Part 1", "Part 2"])
@@ -387,6 +403,33 @@ describe("POST /api/documents: the pipeline", () => {
     });
     expect(lines.length).toBeGreaterThan(0);
     expect(lines.join("\n")).not.toMatch(/TITLE-MARKER|NOTE-MARKER/);
+  });
+
+  it("S9: an error that quotes the notes never reaches the logs or the stored message", async () => {
+    const lines: string[] = [];
+    for (const method of ["log", "warn", "error"] as const)
+      vi.spyOn(console, method).mockImplementation((line: unknown) => {
+        lines.push(String(line));
+      });
+    const course = await addCourse(ada);
+    // Like a library error that quotes its input.
+    extraction.override = async () => {
+      throw new Error("failed near NOTE-MARKER in TITLE-MARKER");
+    };
+    const { id } = (await (
+      await upload(ada, {
+        courseId: course.id,
+        title: "TITLE-MARKER",
+        text: `NOTE-MARKER ${NOTES}`,
+      })
+    ).json()) as { id: string };
+    const doc = await db.document.findUniqueOrThrow({ where: { id } });
+    expect(doc).toMatchObject({
+      status: "FAILED",
+      error: FAILED_FALLBACK_MESSAGE,
+    });
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.join(" ")).not.toMatch(/NOTE-MARKER|TITLE-MARKER/);
   });
 
   it("a failure while saving rolls everything back: no chunks, concepts, links or edges", async () => {

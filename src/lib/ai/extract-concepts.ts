@@ -87,8 +87,17 @@ export function buildPrompt(
 /** Cuts text to at most `max` characters (code points). */
 const cut = (text: string, max: number) => [...text].slice(0, max).join("");
 
+/** Control characters (PostgreSQL refuses NUL in text) become spaces in anything the model wrote. */
+const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");
+
+/** Cut after normalizing: NFKC can make a name much longer (U+FDFA becomes 18 characters). */
 export function conceptNameKey(name: string): string {
-  return name.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+  const key = withoutControls(name)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return cut(key, MAX_CONCEPT_NAME_CHARS).trim();
 }
 
 /** Groups chunks into calls of at most BATCH_CHAR_BUDGET characters; an oversized chunk goes alone, cut. */
@@ -132,7 +141,10 @@ export async function extractConcepts(
     );
     const keyOfName = new Map<string, string>();
     for (const item of output.concepts) {
-      const name = cut(item.name.trim(), MAX_CONCEPT_NAME_CHARS).trim();
+      const name = cut(
+        withoutControls(item.name).trim(),
+        MAX_CONCEPT_NAME_CHARS,
+      ).trim();
       const nameKey = conceptNameKey(name);
       const chunkKeys = item.chunkIds.filter((id) => known.has(id));
       if (nameKey === "" || chunkKeys.length === 0) continue;
@@ -145,7 +157,10 @@ export async function extractConcepts(
         byKey.set(nameKey, {
           name,
           nameKey,
-          summary: cut(item.summary.trim(), MAX_CONCEPT_SUMMARY_CHARS).trim(),
+          summary: cut(
+            withoutControls(item.summary).trim(),
+            MAX_CONCEPT_SUMMARY_CHARS,
+          ).trim(),
           chunkKeys: [...new Set(chunkKeys)],
         });
       }
