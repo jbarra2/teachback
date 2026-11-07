@@ -233,7 +233,7 @@ describe("extractConcepts", () => {
       .mockResolvedValueOnce({
         concepts: [
           concept("shared", ["c2", "c3", "c1"]),
-          concept("Only second", ["c3"]),
+          concept("Only second", ["c3", "c1"]),
         ],
         edges: [{ from: "Only second", to: "Shared" }],
       });
@@ -256,6 +256,13 @@ describe("extractConcepts", () => {
       { from: "shared", to: "only first" },
       { from: "only second", to: "shared" },
     ]);
+  });
+
+  it("fits chunks that add up to exactly the budget in one call", async () => {
+    const half = "h".repeat(BATCH_CHAR_BUDGET / 2);
+    generateJson.mockResolvedValue({ concepts: [], edges: [] });
+    await extractConcepts("T", [source("c1", half), source("c2", half)]);
+    expect(generateJson).toHaveBeenCalledTimes(1);
   });
 
   it("sends a chunk longer than the budget alone, cut to the budget in the prompt", async () => {

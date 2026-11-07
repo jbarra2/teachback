@@ -9,6 +9,7 @@ import * as documentRoute from "@/app/api/documents/[id]/route";
 import * as documentsRoute from "@/app/api/documents/route";
 import { setFakeFailure, FAKE_FAILURE_MODES } from "@/lib/ai/fake";
 import { db } from "@/lib/db";
+import { ID_PATTERN } from "@/lib/schemas";
 import {
   resetRateLimitOverrides,
   setRateLimitOverrides,
@@ -139,7 +140,12 @@ describe("POST /api/documents: the pipeline", () => {
       where: { courseId: course.id },
     });
     expect(concepts).toHaveLength(8);
-    for (const c of concepts) expect(c.nameKey).toBe(c.name.toLowerCase());
+    for (const c of concepts) {
+      expect(c.nameKey).toBe(c.name.toLowerCase());
+      // Made by the pipeline, not Prisma: later routes parse these ids with the API's Id schema.
+      expect(c.id).toMatch(ID_PATTERN);
+    }
+    expect(new Set(concepts.map((c) => c.id)).size).toBe(8);
     expect(await rowsFor(id)).toMatchObject({ chunks: 1, links: 8 });
     expect(
       await db.conceptEdge.count({ where: { from: { courseId: course.id } } }),
@@ -225,6 +231,34 @@ describe("POST /api/documents: the pipeline", () => {
       where: { courseId: course.id },
     });
     expect(docs.map((d) => d.status)).toEqual(["READY", "READY", "READY"]);
+    expect(await db.concept.count({ where: { courseId: course.id } })).toBe(8);
+  });
+
+  it("concurrent uploads whose concepts come back in opposite orders all finish (no deadlock)", async () => {
+    const course = await addCourse(ada);
+    const names = Array.from({ length: 8 }, (_, i) => `Shared ${i + 1}`);
+    let call = 0;
+    extraction.override = async () => {
+      call += 1;
+      const ordered = call % 2 === 0 ? [...names].reverse() : names;
+      return {
+        concepts: ordered.map((name) => ({
+          name,
+          nameKey: name.toLowerCase(),
+          summary: "S.",
+          chunkKeys: ["c1"],
+        })),
+        edges: [],
+      };
+    };
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        upload(ada, { courseId: course.id, title: `T${i}`, text: NOTES }),
+      ),
+    );
+    expect(results.map((r) => r.status)).toEqual(Array(6).fill(202));
+    const docs = await db.document.findMany({ where: { courseId: course.id } });
+    expect(docs.map((d) => d.status)).toEqual(Array(6).fill("READY"));
     expect(await db.concept.count({ where: { courseId: course.id } })).toBe(8);
   });
 
@@ -519,6 +553,8 @@ describe("POST /api/documents: the security matrix", () => {
       file: file(new Uint8Array([0xff, 0xfe, 0x00]), "bad.txt"),
     });
     expect(res.status).toBe(404);
+    await expectError(res, UPLOAD, "NOT_FOUND");
+    expect(await db.document.count({ where: { courseId: course.id } })).toBe(0);
   });
 
   it.each([
@@ -807,7 +843,10 @@ describe("POST /api/documents: what a file must be", () => {
       title: "x",
       file: file("SECRET-CONTENT", "SECRET-NAME.exe"),
     });
-    expect(JSON.stringify(await res.json())).not.toMatch(/SECRET/);
+    expect(res.status).toBe(400);
+    const body = await expectMatchesOpenApi(res, UPLOAD);
+    expect(body).toMatchObject({ error: { code: "UNSUPPORTED_TYPE" } });
+    expect(JSON.stringify(body)).not.toMatch(/SECRET/);
   });
 });
 
