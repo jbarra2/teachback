@@ -6,6 +6,7 @@ import { z } from "zod";
 import { IngestError, type IngestLimits } from "./errors";
 import {
   characterCount,
+  CombiningRunError,
   normalizeText,
   PDF_CHILD_FLAG,
   type PdfRequest,
@@ -65,7 +66,15 @@ export function normalizeNoteText(
   text: string,
   limits: IngestLimits = ingestLimits(),
 ): string {
-  const clean = normalizeText(text).trim();
+  let clean: string;
+  try {
+    clean = normalizeText(text).trim();
+  } catch (error) {
+    // A long run of combining marks (#69): refused before normalizing, which would block.
+    if (error instanceof CombiningRunError)
+      throw new IngestError("UNUSUAL_TEXT");
+    throw error;
+  }
   if (clean === "") throw new IngestError("NO_TEXT", limits);
   // Every character is at least one UTF-16 unit, so only a longer string needs counting.
   if (
@@ -184,7 +193,12 @@ async function parseInChild(
     z.object({ text: z.string().max(2 * limits.maxNoteChars) }).strict(),
     z
       .object({
-        reason: z.enum(["TOO_MANY_PAGES", "TEXT_TOO_LONG", "UNREADABLE_PDF"]),
+        reason: z.enum([
+          "TOO_MANY_PAGES",
+          "TEXT_TOO_LONG",
+          "UNREADABLE_PDF",
+          "UNUSUAL_TEXT",
+        ]),
       })
       .strict(),
   ]);

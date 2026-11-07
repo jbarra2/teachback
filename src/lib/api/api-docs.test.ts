@@ -16,7 +16,7 @@ describe("apiDocsEnabled", () => {
     expect(apiDocsEnabled()).toBe(true);
   });
 
-  // A production default must fail closed (DEPLOY.md: false unless demoing).
+  // The default must fail closed: the docs stay off unless API_DOCS_ENABLED is exactly "true".
   it.each([
     undefined,
     "",
@@ -35,6 +35,21 @@ describe("apiDocsEnabled", () => {
 });
 
 describe("withIntegrity (the hash check on Scalar's script tag)", () => {
+  it('ignores the response\'s own nonce, which can contain "//", when looking for other URLs', () => {
+    const nonce = "ab//cd+ef/AAAAAAAAAAAA==";
+    const html = `<meta content="${nonce}"><script src="${SCALAR_BUNDLE_URL}" nonce="${nonce}"></script><script nonce="${nonce}">x</script>`;
+    expect(withIntegrity(html)).toBeNull();
+    expect(withIntegrity(html, nonce)).toContain(
+      `integrity="${SCALAR_BUNDLE_INTEGRITY}"`,
+    );
+  });
+
+  it("still refuses another URL on a page that has a nonce", () => {
+    const nonce = "bm9uY2U=";
+    const html = `<script src="${SCALAR_BUNDLE_URL}" nonce="${nonce}"></script><script src="https://evil.example/x.js" nonce="${nonce}"></script>`;
+    expect(withIntegrity(html, nonce)).toBeNull();
+  });
+
   const tag = `<script src="${SCALAR_BUNDLE_URL}">`;
   const checked = `<script src="${SCALAR_BUNDLE_URL}" integrity="${SCALAR_BUNDLE_INTEGRITY}" crossorigin="anonymous">`;
 

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,6 +126,16 @@ describe("PDF child process", () => {
     });
   });
 
+  it("#69: maps the child's UNUSUAL_TEXT (a long run of combining marks) to a 422", async () => {
+    const result = readPdf(PDF, LIMITS);
+    await settle();
+    children[0].answer({ reason: "UNUSUAL_TEXT" });
+    await expect(result).rejects.toMatchObject({
+      status: 422,
+      reason: "UNUSUAL_TEXT",
+    });
+  });
+
   it("sends the bytes, the limits, the memory budget and the time cap as the child's deadline", async () => {
     const result = readPdf(PDF, LIMITS, { memoryBudgetMb: 64 });
     await settle();
@@ -151,7 +162,8 @@ describe("PDF child process", () => {
       string[],
       { env: Record<string, string>; execArgv: string[]; stdio: unknown[] },
     ];
-    expect(entry.endsWith(C.PDF_CHILD_ENTRY)).toBe(true);
+    // Built with path.join, as readPdf does: `\` separators on Windows, `/` elsewhere.
+    expect(entry).toBe(path.join(process.cwd(), C.PDF_CHILD_ENTRY));
     expect(args).toContain("--teachback-pdf-child");
     expect(options.execArgv).toEqual([
       `--max-old-space-size=${C.PDF_CHILD_HEAP_MB}`,

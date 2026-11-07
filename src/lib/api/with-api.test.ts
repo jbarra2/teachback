@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { ApiError } from "./errors";
+import type { SessionUser } from "./session";
 import type { ApiContext } from "./with-api";
 
 const readSession = vi.fn();
@@ -10,6 +11,9 @@ const logError = vi.fn();
 vi.mock("@/lib/log", () => ({
   log: { error: logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
+
+const checkRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({ checkRateLimit }));
 
 const { withApi } = await import("./with-api");
 
@@ -28,7 +32,11 @@ function request(
 const ok = () => Response.json({ ok: true });
 /** A handler spy that records the context withApi passed it. */
 const spyHandler = () =>
-  vi.fn<(context: ApiContext<Record<string, string>>) => Response>(ok);
+  vi.fn<
+    (
+      context: ApiContext<Record<string, string>, SessionUser | null>,
+    ) => Response
+  >(ok);
 /** The context of the handler's first call. */
 function contextOf(handler: ReturnType<typeof spyHandler>) {
   const call = handler.mock.calls[0];
@@ -43,6 +51,7 @@ beforeEach(() => {
   vi.stubEnv("BETTER_AUTH_TELEMETRY", "");
   vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "");
   readSession.mockResolvedValue({ user: USER, setCookies: [] });
+  checkRateLimit.mockResolvedValue({ allowed: true });
 });
 
 afterEach(() => {
@@ -431,5 +440,161 @@ describe("withApi: every response", () => {
       noParams,
     );
     expect(response.status).toBe(200);
+  });
+});
+
+// T14: security headers on every API response.
+describe("withApi: security headers", () => {
+  const cases: [string, () => Promise<Response>][] = [
+    ["a success", () => withApi(spyHandler())(request(), noParams)],
+    [
+      "a 401",
+      () => {
+        readSession.mockResolvedValue(null);
+        return withApi(spyHandler())(request(), noParams);
+      },
+    ],
+    [
+      "a 500",
+      () =>
+        withApi(() => {
+          throw new Error("boom");
+        })(request(), noParams),
+    ],
+    [
+      "a redirect",
+      () => withApi(() => Response.redirect(`${APP}/x`))(request(), noParams),
+    ],
+  ];
+
+  it.each(cases)(
+    "%s gets the API CSP and the security headers",
+    async (_name, go) => {
+      const response = await go();
+      expect(response.headers.get("content-security-policy")).toBe(
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      );
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("referrer-policy")).toBe(
+        "strict-origin-when-cross-origin",
+      );
+      expect(response.headers.get("x-frame-options")).toBe("DENY");
+      expect(response.headers.get("permissions-policy")).toBeTruthy();
+    },
+  );
+
+  it("sends HSTS only in production", async () => {
+    const dev = await withApi(spyHandler())(request(), noParams);
+    expect(dev.headers.has("strict-transport-security")).toBe(false);
+    vi.stubEnv("NODE_ENV", "production");
+    const prod = await withApi(spyHandler(), { auth: false })(
+      request(),
+      noParams,
+    );
+    expect(prod.headers.get("strict-transport-security")).toMatch(
+      /max-age=\d+/,
+    );
+  });
+
+  it("keeps a CSP the route set for its own page (the API docs)", async () => {
+    const response = await withApi(
+      () =>
+        new Response("<html></html>", {
+          headers: {
+            "Content-Security-Policy":
+              "default-src 'none'; script-src 'nonce-x'",
+          },
+        }),
+      { auth: false },
+    )(request(), noParams);
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; script-src 'nonce-x'",
+    );
+  });
+
+  it("still sets nosniff when a handler tried to send its own value", async () => {
+    const response = await withApi(
+      () => new Response("x", { headers: { "X-Content-Type-Options": "off" } }),
+    )(request(), noParams);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
+// T14: when the limiter runs. Its counting is in rate-limit.int.test.ts.
+describe("withApi: rate limits", () => {
+  it("checks the route's bucket for the signed-in user before the handler runs", async () => {
+    const handler = spyHandler();
+    await withApi(handler, { rateLimit: "ai" })(request("POST"), noParams);
+    expect(checkRateLimit).toHaveBeenCalledWith(USER.id, "ai");
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit.mock.invocationCallOrder[0]).toBeLessThan(
+      handler.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("answers 429 with Retry-After when the limiter refuses, and never runs the handler", async () => {
+    checkRateLimit.mockResolvedValue({ allowed: false, retryAfter: 42 });
+    const handler = spyHandler();
+    const response = await withApi(handler, { rateLimit: "upload" })(
+      request("POST"),
+      noParams,
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("42");
+    expect(response.headers.get("x-request-id")).toMatch(UUID);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "RATE_LIMITED",
+        message: "Too many requests. Please wait a moment.",
+      },
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("doesn't count a request without a session", async () => {
+    readSession.mockResolvedValue(null);
+    const response = await withApi(spyHandler(), { rateLimit: "ai" })(
+      request("POST"),
+      noParams,
+    );
+    expect(response.status).toBe(401);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("doesn't count a cross-site or oversized request", async () => {
+    const limited = withApi(spyHandler(), { rateLimit: "ai" });
+    const crossSite = await limited(
+      request("POST", { headers: { "sec-fetch-site": "cross-site" } }),
+      noParams,
+    );
+    const oversized = await limited(
+      request("POST", { headers: { "content-length": String(10 ** 9) } }),
+      noParams,
+    );
+    expect(crossSite.status).toBe(403);
+    expect(oversized.status).toBe(413);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("never runs the limiter on a route without a rateLimit option", async () => {
+    await withApi(spyHandler())(request("POST"), noParams);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("fails closed with a 500 when the limiter can't decide (database down, bad setting)", async () => {
+    checkRateLimit.mockRejectedValue(new Error("db down"));
+    const handler = spyHandler();
+    const response = await withApi(handler, { rateLimit: "ai" })(
+      request("POST"),
+      noParams,
+    );
+    expect(response.status).toBe(500);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("refuses to build a rate-limited route without auth, which would have no user to count", () => {
+    expect(() =>
+      withApi(spyHandler(), { auth: false, rateLimit: "ai" }),
+    ).toThrow(/rateLimit/);
   });
 });
