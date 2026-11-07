@@ -115,6 +115,33 @@ describe("fake fixtures", () => {
       generateJson(Concepts, empty, { model: "fast", task: "extractConcepts" }),
     ).resolves.toBeTruthy();
   });
+
+  it("falls back to the chunk text itself when a chunk has no words", async () => {
+    const blank = {
+      system: "s",
+      user: '<chunk id="blank" ref="p1">\n   \t\n</chunk>',
+    };
+
+    const q = await generateJson(Question, blank, {
+      model: "fast",
+      task: "generateQuestion",
+    });
+    expect(q).toEqual({
+      text: 'In your own words, explain the idea behind "". Why does it matter?',
+      kind: "EXPLAIN",
+      sourceChunkIds: ["blank"],
+    });
+
+    const { concepts } = await generateJson(Concepts, blank, {
+      model: "fast",
+      task: "extractConcepts",
+    });
+    expect(concepts).toHaveLength(8);
+    for (const concept of concepts) {
+      expect(concept.summary).toBe("Summary of: ");
+      expect(concept.chunkIds).toEqual(["blank"]);
+    }
+  });
 });
 
 describe("fake failure modes", () => {

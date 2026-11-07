@@ -163,6 +163,16 @@ describe("runWithTransport", () => {
     expect(transport).toHaveBeenCalledTimes(attempts);
   });
 
+  it("passes an AiError from the transport through unchanged, without retrying", async () => {
+    const thrown = new AiError("TIMEOUT");
+    const transport = vi.fn<Transport>().mockRejectedValue(thrown);
+    const error = await caught(
+      runWithTransport(transport, Answer, prompt, options),
+    );
+    expect(error).toBe(thrown);
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the upstream status on UPSTREAM errors", async () => {
     const transport = vi.fn<Transport>().mockRejectedValue(apiError(401));
     await expect(

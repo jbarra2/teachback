@@ -119,3 +119,23 @@ Fixing tests for a platform I couldn't run. The issue didn't include Jonathan's 
 
 **What I learned:**
 Windows doesn't report POSIX termination signals the way Linux and macOS do: a process killed or aborted there shows up as an exit code with no signal, so tests that assert a signal only work on Linux and macOS. Paths differ too: `path.join` gives backslashes on Windows, so comparing against the same `path.join` call is more reliable than matching a hard-coded suffix. And when I can't test on a platform, it's better to have the test record what happens there than to assert behavior I've only read about.
+
+## T41 · Cover the last two branches in the AI wrapper (fake.ts, provider.ts) (#56) · Nov 7, 2026
+
+**What I built:** Two unit tests that cover the last untested branches in the AI wrapper, bringing every file in `src/lib/ai/` to 100% branch coverage. In `fake.test.ts`, a prompt with only a whitespace chunk checks that the fake provider's `firstWords` falls back to the text itself and still returns schema-valid questions and concepts. In `provider.test.ts`, a transport that throws an `AiError` checks that `toAiError` passes the same object through without retrying. No production code changed.
+
+**Skills & tools:** Vitest (mocks, identity vs. equality assertions), V8 branch coverage, zod, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T41 with no production code changes, then the two tests with exact expected values for the fallback case and an identity check plus a single-call check for the `AiError` case. I also asked for confirmation from `npm run test:ci` that `src/lib/ai/` reached 100% branches, while keeping my other branches and stashes untouched.
+
+**Decided / dropped:**
+
+- The fallback test uses `generateQuestion` and `extractConcepts` to exercise the actual fake-provider behavior. I checked the exact returned values and schema validation rather than relying on coverage numbers alone.
+- The pass-through test uses `toBe(thrown)` instead of `toMatchObject({ code })`. The existing error-mapping tests only compare fields, which can't tell a passed-through error from a new one with the same code.
+- Left the branch gaps in `services/` and `mastery/` alone. They came from tasks merged after this issue was written, and most of `services/` is in the lead's track, so they're listed as follow-ups in the PR.
+
+**Hardest part, and how I solved it:**
+Making the fallback branch reachable through the public API. `firstWords` only returns the raw text when its regex finds no word, and `readChunks` trims each chunk, so a chunk of spaces and tabs becomes an empty string that takes exactly that path. Separately, `npm run verify` first failed type-checking and the build because of generated route types left over from my T22 branch, which pointed at an endpoint not on `main` yet. Deleting the git-ignored `.next/dev/types` folder fixed it without touching any tracked file.
+
+**What I learned:**
+Line coverage can be 100% while a branch is still untested: a ternary runs on every call, but only one side may ever be taken. An equality assertion also can't prove an object was passed through unchanged; you need an identity check like `toBe`. And our coverage report hides fully covered files, so a folder missing from the table means it's at 100%. I confirmed the per-file numbers in `coverage-summary.json` rather than assuming.
