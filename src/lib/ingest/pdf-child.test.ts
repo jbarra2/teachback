@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CombiningRunError,
+  longestCombiningRun,
   MAX_COMBINING_RUN,
   normalizeText,
   readPdfText,
@@ -218,10 +219,39 @@ describe("normalizeText and combining marks (#69)", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
-  it("counts marks across a BOM, line endings and lone surrogates the same way", () => {
-    expect(() =>
-      normalizeText(`﻿
-${markRun(MAX_COMBINING_RUN + 1)}�`),
-    ).toThrow(CombiningRunError);
+  it("counts a run split by a BOM, CRLF or a lone surrogate the same way", () => {
+    const half = markRun(16).slice(1);
+    // The BOM is removed only at the start, and CRLF becomes LF: both still split a run.
+    expect(normalizeText(`\uFEFFa${half}\r\n${half}`)).toBe(
+      `a${half}\n${half}`.normalize("NFC"),
+    );
+    // A lone surrogate becomes U+FFFD, which isn't a mark, so it splits a run too.
+    expect(normalizeText(`a${half}\uD800${half}`)).toBe(
+      `a${half}\uFFFD${half}`.normalize("NFC"),
+    );
+  });
+
+  it.each(["\u0001", "\u007f", "\u0085", "\u0000"])(
+    "refuses runs joined by removing control character %j",
+    (separator) => {
+      const run = markRun(20).slice(1);
+      expect(() => normalizeText(`a${run}${separator}${run}`)).toThrow(
+        CombiningRunError,
+      );
+    },
+  );
+
+  it("scans 4 MB of dense runs just under the limit quickly, and accepts them", () => {
+    const text = (markRun(MAX_COMBINING_RUN).slice(1) + "a").repeat(70_000);
+    const started = performance.now();
+    expect(longestCombiningRun(text)).toBe(MAX_COMBINING_RUN);
+    // A regex looking for 31 marks in a row backtracked here for over a second.
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  it("counts astral marks as one character each", () => {
+    // U+1D167 MUSICAL SYMBOL COMBINING TREMOLO-1 is a mark outside the BMP.
+    expect(longestCombiningRun("a" + "\u{1D167}".repeat(31))).toBe(31);
+    expect(longestCombiningRun("a" + "\u{1D167}".repeat(30))).toBe(30);
   });
 });

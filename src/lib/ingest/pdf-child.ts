@@ -51,7 +51,7 @@ const SURROGATE_PAIR = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
  * marks block for seconds), so a longer run is refused before normalizing (#69).
  */
 export const MAX_COMBINING_RUN = 30;
-const LONG_COMBINING_RUN = new RegExp(`\\p{M}{${MAX_COMBINING_RUN + 1}}`, "u");
+const COMBINING_MARKS = /\p{M}+/gu;
 
 /** Text with more than MAX_COMBINING_RUN combining marks in a row. */
 export class CombiningRunError extends Error {
@@ -59,17 +59,33 @@ export class CombiningRunError extends Error {
 }
 
 /**
+ * The longest run of combining marks, in code points. One linear pass: a regex that looks for 31
+ * marks in a row backtracks inside every shorter run, which takes over a second on 4 MB of them.
+ */
+export function longestCombiningRun(text: string): number {
+  let longest = 0;
+  for (const [run] of text.matchAll(COMBINING_MARKS)) {
+    // Most marks are one UTF-16 unit; count code points only when it could matter.
+    if (run.length > longest) longest = Math.max(longest, characterCount(run));
+  }
+  return longest;
+}
+
+/**
  * BOM stripped, LF line endings, unpaired surrogates (which PostgreSQL refuses) replaced with
- * U+FFFD, NFC, and control characters removed. Not trimmed. Throws CombiningRunError for a run
- * of combining marks longer than MAX_COMBINING_RUN.
+ * U+FFFD, control characters removed, then NFC. Not trimmed. Throws CombiningRunError for a run
+ * of combining marks longer than MAX_COMBINING_RUN, counted after control characters are removed,
+ * since removing them can join two runs into one.
  */
 export function normalizeText(text: string): string {
-  const wellFormed = text
-    .replace(/^﻿/, "")
+  const clean = text
+    .replace(/^\uFEFF/, "")
     .replace(/\r\n?/g, "\n")
-    .toWellFormed();
-  if (LONG_COMBINING_RUN.test(wellFormed)) throw new CombiningRunError();
-  return wellFormed.normalize("NFC").replace(CONTROL_CHARS, "");
+    .toWellFormed()
+    .replace(CONTROL_CHARS, "");
+  if (longestCombiningRun(clean) > MAX_COMBINING_RUN)
+    throw new CombiningRunError();
+  return clean.normalize("NFC");
 }
 
 /** Length in characters (code points), as PostgreSQL's varchar and the zod schemas count. */
