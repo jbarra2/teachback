@@ -32,8 +32,6 @@ const ROUTE_FILE = /^route\.(ts|tsx|js|jsx)$/;
  * handler, so the list can only shrink.
  */
 const NOT_BUILT_YET: Record<string, string> = {
-  uploadDocument: "T12",
-  getDocument: "T12",
   createQuestion: "T17",
   answerQuestion: "T22",
 };
