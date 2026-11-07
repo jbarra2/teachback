@@ -5,6 +5,7 @@
 // Processing calls the AI outside any transaction, then writes chunks, concepts, links and edges
 // in one short transaction, so a failure never leaves part of a document behind. A failed document
 // stores only fixed, user-written messages: never exception text, AI output or file details.
+import { withDeadline } from "@/lib/ai/deadline";
 import { AiError } from "@/lib/ai/errors";
 import { extractConcepts, type ConceptSource } from "@/lib/ai/extract-concepts";
 import { runAfterResponse } from "@/lib/api/background";
@@ -51,22 +52,6 @@ const SAVE_TIMEOUT_MS = 15_000;
  * FAILED (document-status.ts), so a slow run can't later turn a reported failure into READY.
  */
 export const EXTRACTION_DEADLINE_MS = 8 * 60 * 1000;
-
-/** Rejects with AiError TIMEOUT once `ms` pass, and clears its timer either way. */
-export async function withDeadline<T>(
-  work: Promise<T>,
-  ms: number,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new AiError("TIMEOUT")), ms);
-  });
-  try {
-    return await Promise.race([work, deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function sourceTypeOf(filename: string): SourceType {
   const extension = filename.toLowerCase().split(".").pop();
