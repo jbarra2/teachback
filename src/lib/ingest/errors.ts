@@ -56,6 +56,11 @@ const REASONS = {
     message: () =>
       "We couldn't find any text to read. Scanned PDFs (images of pages) aren't supported yet.",
   },
+  UNUSUAL_TEXT: {
+    code: "UNREADABLE_FILE",
+    message: () =>
+      "These notes contain long runs of accent marks that we can't process. Remove them and try again.",
+  },
   UNREADABLE_PDF: {
     code: "UNREADABLE_FILE",
     message: () =>

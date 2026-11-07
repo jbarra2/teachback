@@ -126,6 +126,16 @@ describe("PDF child process", () => {
     });
   });
 
+  it("#69: maps the child's UNUSUAL_TEXT (a long run of combining marks) to a 422", async () => {
+    const result = readPdf(PDF, LIMITS);
+    await settle();
+    children[0].answer({ reason: "UNUSUAL_TEXT" });
+    await expect(result).rejects.toMatchObject({
+      status: 422,
+      reason: "UNUSUAL_TEXT",
+    });
+  });
+
   it("sends the bytes, the limits, the memory budget and the time cap as the child's deadline", async () => {
     const result = readPdf(PDF, LIMITS, { memoryBudgetMb: 64 });
     await settle();
