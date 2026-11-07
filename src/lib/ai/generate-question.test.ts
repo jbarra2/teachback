@@ -207,6 +207,24 @@ describe("generateQuestion", () => {
     expect(body).toHaveLength(QUESTION_SOURCE_CHAR_BUDGET);
   });
 
+  it("stops at the first chunk that doesn't fit, so later notes never jump ahead", async () => {
+    generateJson.mockResolvedValue({
+      text: "Why?",
+      kind: "WHY",
+      sourceChunkIds: ["s1"],
+    });
+    const big = "n".repeat(QUESTION_SOURCE_CHAR_BUDGET);
+    await generateQuestion(
+      concept,
+      [source("s1", "short"), source("s2", big), source("s3", "tiny")],
+      [],
+    );
+    const user = generateJson.mock.calls[0][1].user as string;
+    expect(user).toContain('id="s1"');
+    expect(user).not.toContain('id="s2"');
+    expect(user).not.toContain('id="s3"');
+  });
+
   it("lets the model cite only the chunks that were actually sent", async () => {
     generateJson.mockResolvedValue({
       text: "Why?",

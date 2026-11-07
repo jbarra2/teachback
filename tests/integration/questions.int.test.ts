@@ -296,6 +296,24 @@ describe("POST /api/concepts/{id}/question", () => {
     expect(body.sources.map((s) => s.chunkId)).toEqual([chunks[2].id]);
   });
 
+  it("drops a source key that isn't one of this concept's chunks", async () => {
+    const { concept, chunks } = await addConcept(ada, 2);
+    generation.override = async () => ({
+      text: "Why?",
+      kind: "WHY",
+      sourceKeys: ["s1", "s99"],
+    });
+    const body = (await (await ask(ada, concept.id)).json()) as {
+      questionId: string;
+      sources: { chunkId: string }[];
+    };
+    expect(body.sources.map((s) => s.chunkId)).toEqual([chunks[0].id]);
+    const saved = await db.question.findUniqueOrThrow({
+      where: { id: body.questionId },
+    });
+    expect(saved.sourceChunkIds).toEqual([chunks[0].id]);
+  });
+
   it("S1: no session → 401, and no question is saved", async () => {
     const { concept } = await addConcept(ada);
     const res = await asAnonymous().call(questionRoute.POST, {
