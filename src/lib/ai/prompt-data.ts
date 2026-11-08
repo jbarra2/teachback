@@ -12,3 +12,17 @@ export const escapeAttribute = (value: string) =>
 /** Cuts text to at most `max` characters (code points). */
 export const cut = (text: string, max: number) =>
   [...text].slice(0, max).join("");
+
+const ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+};
+
+/**
+ * Undoes escapeText/escapeAttribute once, in a single pass (so "&amp;lt;" becomes "&lt;", not "<").
+ * For text the model copied out of a prompt, where it saw the escaped form.
+ */
+export const unescapeText = (value: string) =>
+  value.replace(/&(?:amp|lt|gt|quot);/g, (entity) => ENTITIES[entity]);

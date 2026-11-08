@@ -31,9 +31,7 @@ const ROUTE_FILE = /^route\.(ts|tsx|js|jsx)$/;
  * handler, whatever its track (PLAN §2), and the test fails if a listed operation already has a
  * handler, so the list can only shrink.
  */
-const NOT_BUILT_YET: Record<string, string> = {
-  answerQuestion: "T22",
-};
+const NOT_BUILT_YET: Record<string, string> = {};
 
 /** "src/app/api/courses/[id]/route.ts" → "/api/courses/{id}" */
 const urlPathFor = (file: string) =>

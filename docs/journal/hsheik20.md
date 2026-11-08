@@ -143,3 +143,36 @@ Making the seed safe to re-run and retry without touching anything it doesn't ow
 
 **What I learned:**
 To make a script idempotent, the "does it exist?" check has to happen inside the transaction, under a lock, not before it. Otherwise two runs can both decide to create the same data. Verifying a password with the auth library's own verifier is a safe way to confirm credentials without signing in or changing anything. And when a library logs an error, reading where in its source that log is written can rule out whole causes: Better Auth only logs "Invalid password" after it has already found the user, which ruled out a database mismatch right away.
+
+## T22 · Answer evaluation endpoint (#22) · Nov 6, 2026
+
+**What I built:** `POST /api/questions/{id}/answer`, which grades a student's answer to one of their own questions against that concept's notes using the smart model, keeps only evidence quotes that really appear in the notes, and saves the Attempt. The route (`src/app/api/questions/[id]/answer/route.ts`) calls `answerQuestion` in `src/lib/services/answer.ts`, which uses the new `evaluateAnswer` prompt and schema in `src/lib/ai/evaluate-answer.ts`.
+
+**Skills & tools:** Next.js route handlers, Prisma transactions, zod v4, Claude API structured output, prompt-injection defenses, Vitest unit and integration tests
+
+**Asked Claude for:** I had Claude plan and implement the T22 answer-evaluation endpoint, including the security and integration tests. Before implementation, I asked it to address an edge case involving escaped characters in evidence quotes and structure the database transaction so T24 could build on it later. After implementation, I reviewed the testing results and manually tested answer evaluation, prompt injection, validation, cross-user access, fabricated evidence and AI failures. When VS Code unexpectedly restarted during testing, I had Claude confirm that all my work was preserved before continuing with the security review.
+
+**Decided / dropped:**
+
+- The model only sees short source keys (`s1`, `s2`, ...) that the server maps back to chunk IDs. It never sees or picks a database ID, so a quote can't be pointed at someone else's chunk.
+- Quotes are checked only against the chunks actually sent after the prompt budget trimmed them, so a quote from a chunk that was cut off fails verification.
+- The AI call runs under one 90-second deadline and outside the database transaction. An AI failure returns 502 `AI_UNAVAILABLE` and saves no Attempt.
+- Reused T17's chunk select, note ordering, budget and control-character helpers (`NOTE_CHUNK_SELECT`, `inNoteOrder`, `withinBudget`, `withoutControls`) instead of copying them.
+- Mastery is read but not updated here. The row-locked update is left to T24.
+
+**Manual testing (checked by me in the running app):**
+
+- Normal answer: 200, PARTIAL verdict, two evidence citations with chunk IDs and reference labels, mastery unchanged.
+- Prompt-injection answer: 200, verdict stayed PARTIAL (fake provider).
+- A 4,001-character answer: 400 `VALIDATION_ERROR` naming the `answer` field.
+- Demo User B answering Demo User A's question: 404.
+- Fabricated evidence: 200, fabricated quotes removed, `unsupported` true, confidence LOW.
+- AI timeout: 502 `AI_UNAVAILABLE` with the friendly message and no internal details.
+
+The automated integration tests (not my manual checks) assert that an AI failure saves no Attempt.
+
+**Hardest part, and how I solved it:**
+The notes go to the model HTML-escaped to protect the prompt, so a true quote could come back as "&amp;" instead of "&" and fail the word-for-word check against the notes. I added a single-pass `unescapeText` and a `quoteAsInNotes` step that only chooses which spelling of the quote to check, so the substring check itself never gets looser. I also manually tested the fabricated-evidence failure mode and confirmed that unsupported quotes were removed and confidence dropped to LOW.
+
+**What I learned:**
+Model output has to be treated as untrusted even when it's structured: zod validates its shape, but every citation still has to be checked against text the server controls. I also learned to keep slow AI calls out of database transactions and put them under one overall deadline, so a timeout fails cleanly with a fixed message and leaves no partial data behind.
