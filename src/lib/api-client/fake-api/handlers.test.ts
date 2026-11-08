@@ -1,9 +1,10 @@
-// The mocks driven through the real typed client, all keys on, with a network that must not be used.
+// The fake API driven through the real typed client, every endpoint on, with a network that must
+// not be used.
 import { describe, expect, it, vi } from "vitest";
 import { createApiClient, unwrap } from "@/lib/api-client";
 import { rejection } from "@/lib/api-client/test-helpers";
 import { LIMITS } from "@/lib/schemas";
-import { MOCK_KEYS } from "./config";
+import { createFakeFetch } from "./fake-fetch";
 import {
   CONCEPT_IDS,
   COURSE_2_ID,
@@ -19,23 +20,21 @@ import {
 
 const UNKNOWN_ID = "cunknown00000000000000001";
 
-function mockedApi() {
+function fakeApi() {
   const network = vi.fn<(request: Request) => Promise<Response>>(async () => {
-    throw new Error("the mocks should answer every call");
+    throw new Error("the fake should answer every call");
   });
   const api = createApiClient({
     baseUrl: "http://test.local",
-    fetch: network,
-    mocks: new Set(MOCK_KEYS),
-    mockDelayMs: 0,
+    fetch: createFakeFetch({ fetch: network }),
     onUnauthenticated: () => {},
   });
   return { api, network };
 }
 
-describe("courses mock", () => {
+describe("fake courses", () => {
   it("lists, creates and shows courses", async () => {
-    const { api, network } = mockedApi();
+    const { api, network } = fakeApi();
     expect(await unwrap(api.GET("/api/courses"))).toEqual(courses);
 
     const { data, response } = await api.POST("/api/courses", {
@@ -66,7 +65,7 @@ describe("courses mock", () => {
   it.each(["", "   ", "x".repeat(LIMITS.courseName + 1), "a\u0000b"])(
     "rejects the name %j like the server",
     async (name) => {
-      const { api } = mockedApi();
+      const { api } = fakeApi();
       const error = await rejection(
         unwrap(api.POST("/api/courses", { body: { name } })),
       );
@@ -80,7 +79,7 @@ describe("courses mock", () => {
   );
 
   it("counts characters, not UTF-16 units, like the server", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     // 120 emoji are 240 UTF-16 units but 120 characters.
     const name = "😀".repeat(LIMITS.courseName);
     const created = await unwrap(api.POST("/api/courses", { body: { name } }));
@@ -92,7 +91,7 @@ describe("courses mock", () => {
   });
 
   it("rejects unknown body fields, like the server's .strict() schemas", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const body = { name: "New", admin: true } as { name: string };
     const error = await rejection(unwrap(api.POST("/api/courses", { body })));
     expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
@@ -100,7 +99,7 @@ describe("courses mock", () => {
   });
 
   it("is a 400 for a malformed id, before looking it up", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     for (const id of ["not-a-cuid", "%E0%A4%A", "../courses"]) {
       const error = await rejection(
         unwrap(api.GET("/api/courses/{id}", { params: { path: { id } } })),
@@ -111,16 +110,16 @@ describe("courses mock", () => {
   });
 
   it("doesn't share state between clients", async () => {
-    const first = mockedApi().api;
+    const first = fakeApi().api;
     await unwrap(first.POST("/api/courses", { body: { name: "New" } }));
-    const second = mockedApi().api;
+    const second = fakeApi().api;
     expect(await unwrap(second.GET("/api/courses"))).toEqual(courses);
   });
 });
 
-describe("course data mocks", () => {
+describe("fake course data", () => {
   it("returns concepts, the map and the next concept for the demo course", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const params = { params: { path: { id: COURSE_ID } } };
     expect(await unwrap(api.GET("/api/courses/{id}/concepts", params))).toEqual(
       concepts,
@@ -134,7 +133,7 @@ describe("course data mocks", () => {
   });
 
   it("moves the next concept on each call, then wraps around", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const params = { params: { path: { id: COURSE_ID } } };
     const picks = [];
     for (let i = 0; i <= concepts.length; i++)
@@ -149,7 +148,7 @@ describe("course data mocks", () => {
   });
 
   it("returns empty data for a course without notes", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const params = { params: { path: { id: COURSE_2_ID } } };
     expect(await unwrap(api.GET("/api/courses/{id}/concepts", params))).toEqual(
       [],
@@ -176,7 +175,7 @@ describe("course data mocks", () => {
     "/api/courses/{id}/map",
     "/api/courses/{id}/next-concept",
   ] as const)("%s is a 404 for an unknown course", async (path) => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const error = await rejection(
       unwrap(api.GET(path, { params: { path: { id: UNKNOWN_ID } } })),
     );
@@ -184,9 +183,9 @@ describe("course data mocks", () => {
   });
 });
 
-describe("documents mock", () => {
+describe("fake documents", () => {
   function upload(
-    api: ReturnType<typeof mockedApi>["api"],
+    api: ReturnType<typeof fakeApi>["api"],
     courseId: string,
     title: string,
     notes: { text?: string; file?: Blob } = {
@@ -205,7 +204,7 @@ describe("documents mock", () => {
   }
 
   it("accepts an upload and steps it to READY across polls", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const { data, response } = await upload(api, COURSE_ID, "Week 3");
     expect(response.status).toBe(202);
     expect(data?.status).toBe("QUEUED");
@@ -228,7 +227,7 @@ describe("documents mock", () => {
   });
 
   it("reports the seeded documents as they are", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     expect(
       await unwrap(
         api.GET("/api/documents/{id}", {
@@ -243,7 +242,7 @@ describe("documents mock", () => {
   });
 
   it("rejects a missing title and an unknown course", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     expect(await rejection(unwrap(upload(api, COURSE_ID, " ")))).toMatchObject({
       code: "VALIDATION_ERROR",
     });
@@ -264,7 +263,7 @@ describe("documents mock", () => {
   });
 
   it("validates the form before looking up the course, like the server", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const error = await rejection(unwrap(upload(api, UNKNOWN_ID, " ")));
     expect(error).toMatchObject({ code: "VALIDATION_ERROR", status: 400 });
     expect(error.details?.fieldErrors.title).toHaveLength(1);
@@ -277,7 +276,7 @@ describe("documents mock", () => {
       { text: "Notes", file: new File(["Notes"], "week1.txt") },
     ],
   ])("rejects %s", async (_label, notes) => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const error = await rejection(
       unwrap(upload(api, COURSE_ID, "Week 1", notes)),
     );
@@ -286,7 +285,7 @@ describe("documents mock", () => {
   });
 
   it("accepts a file instead of text", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const { response } = await upload(api, COURSE_ID, "Week 1", {
       file: new File(["Cells are the unit of life."], "week1.txt"),
     });
@@ -294,9 +293,9 @@ describe("documents mock", () => {
   });
 });
 
-describe("practice mocks", () => {
+describe("fake practice", () => {
   it("asks a question about a known concept", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     expect(
       await unwrap(
         api.POST("/api/concepts/{id}/question", {
@@ -307,7 +306,7 @@ describe("practice mocks", () => {
   });
 
   it("cycles CORRECT, PARTIAL and INCORRECT feedback", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const answer = () =>
       unwrap(
         api.POST("/api/questions/{id}/answer", {
@@ -323,7 +322,7 @@ describe("practice mocks", () => {
   });
 
   it("validates the answer before looking up the question", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const error = await rejection(
       unwrap(
         api.POST("/api/questions/{id}/answer", {
@@ -338,7 +337,7 @@ describe("practice mocks", () => {
   it.each(["", " ", "x".repeat(LIMITS.answer + 1)])(
     "rejects the answer %j like the server",
     async (text) => {
-      const { api } = mockedApi();
+      const { api } = fakeApi();
       const error = await rejection(
         unwrap(
           api.POST("/api/questions/{id}/answer", {
@@ -352,7 +351,7 @@ describe("practice mocks", () => {
   );
 
   it("is a 404 for an unknown concept or question", async () => {
-    const { api } = mockedApi();
+    const { api } = fakeApi();
     const params = { params: { path: { id: UNKNOWN_ID } } };
     expect(
       await rejection(unwrap(api.POST("/api/concepts/{id}/question", params))),

@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { COURSE_ID, concepts } from "@/lib/mocks/fixtures";
+import { COURSE_ID, concepts } from "@/lib/api-client/fake-api/fixtures";
 import { ConceptList } from "./concept-list";
 
 describe("ConceptList", () => {

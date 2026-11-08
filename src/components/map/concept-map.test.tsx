@@ -8,13 +8,13 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/api-client";
 import { GENERIC_MESSAGE, NETWORK_MESSAGE } from "@/lib/api-client/errors";
-import { MOCK_KEYS } from "@/lib/mocks/config";
+import { createFakeFetch } from "@/lib/api-client/fake-api/fake-fetch";
 import {
   CONCEPT_IDS,
   COURSE_2_ID,
   COURSE_ID,
   courseMap,
-} from "@/lib/mocks/fixtures";
+} from "@/lib/api-client/fake-api/fixtures";
 import { ConceptMap } from "./concept-map";
 
 type Network = (request: Request) => Promise<Response>;
@@ -45,13 +45,11 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
-/** A client answering from src/lib/mocks, or from `network` when given. */
+/** A client answering from the fake API, or from `network` when given. */
 function client(network?: Network) {
   return createApiClient({
     baseUrl: "http://test.local",
-    mocks: network ? new Set() : new Set(MOCK_KEYS),
-    mockDelayMs: 0,
-    fetch: network,
+    fetch: network ?? createFakeFetch(),
     onUnauthenticated: vi.fn(),
   });
 }

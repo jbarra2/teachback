@@ -37,7 +37,7 @@ Only edit your track's folders. Need a change elsewhere? Comment on your issue a
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Lead** (`lead`): platform, data, security, integration | `openapi/`, `prisma/` (except `seed.ts`), `prisma.config.ts`, `src/lib/db.ts`, `src/lib/schemas/`, `src/lib/auth.ts`, `src/lib/auth-config.ts`, `src/lib/auth-env.ts`, `src/lib/auth-secret.ts`, `src/lib/auth-client.ts`, `src/lib/api/`, `src/lib/log.ts`, `src/lib/rate-limit.ts`, `src/lib/services/courses.ts`, `src/lib/services/document-status.ts`, `src/lib/services/map.ts`, `src/app/api/{auth,courses,health,openapi,docs}/`, `src/proxy.ts`, root config files (`next.config.ts`, `tsconfig.json`, ESLint/Prettier/Vitest/Playwright configs), `tests/helpers/`, `tests/contract/`, `tests/integration/`, `scripts/` (except AI scripts), `.github/`, `.githooks/`, `.claude/`, `docs/` (except `docs/eval.md` and teammates' journals), `docker-compose.yml`, `README.md` |
 | **AI** (`ai`): Claude API, ingestion, grading            | `src/lib/ai/`, `src/lib/ingest/`, `src/lib/services/{documents,questions,answer}.ts`, `src/app/api/{documents,concepts,questions}/`, `prisma/seed.ts`, `tests/e2e/`, `fixtures/`, `scripts/{ai-ping,eval}.ts`, `docs/eval.md`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **Frontend** (`frontend`): every screen                  | `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/globals.css`, `src/app/(auth)/`, `src/app/(app)/`, `src/components/`, `src/lib/api-client/` (except the generated `schema.d.ts`), `src/lib/mocks/`, `src/lib/mastery/` (T19)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Frontend** (`frontend`): every screen                  | `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/globals.css`, `src/app/(auth)/`, `src/app/(app)/`, `src/components/`, `src/lib/api-client/` (except the generated `schema.d.ts`), `src/lib/mastery/` (T19)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 **Everyone:** your own `docs/journal/<your-github-username>.md`. `/finish-task` adds an entry with each task (see `docs/JOURNAL.md`).
 
@@ -133,8 +133,8 @@ src/
     ai/            provider.ts, fake.ts, prompts/, extract-concepts.ts,
                    generate-question.ts, evaluate-answer.ts, verify-evidence.ts
     mastery/       score.ts, select-next.ts
-    api-client/    client.ts (openapi-fetch), schema.d.ts (generated), mock switch
-    mocks/         fixtures (deleted in T28)
+    api-client/    client.ts (openapi-fetch), schema.d.ts (generated),
+                   fake-api/ (test-only in-memory API, T28)
   generated/prisma/ (gitignored)
   proxy.ts
 prisma/schema.prisma, prisma/migrations/, prisma/seed.ts
@@ -332,7 +332,7 @@ All requests and responses are JSON under `/api`, using a cookie session (Better
 | INTERNAL          | 500 (+ `x-request-id`) |
 | AI_UNAVAILABLE    | 502                    |
 
-`state` is one of `MASTERED`, `REVIEW` or `PRACTICE`. Mock keys for `NEXT_PUBLIC_MOCK_ENDPOINTS`: `courses`, `documents`, `concepts`, `question`, `answer`, `map`, `next`.
+`state` is one of `MASTERED`, `REVIEW` or `PRACTICE`. The app always calls the real API (T28 removed the mock switch). Component tests pass `createFakeFetch()` from `src/lib/api-client/fake-api/` as the client's `fetch`; it fakes `courses`, `documents`, `concepts`, `question`, `answer`, `map` and `next`.
 
 **Contract workflow:**
 

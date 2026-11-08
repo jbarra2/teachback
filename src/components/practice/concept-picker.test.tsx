@@ -1,16 +1,18 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/api-client";
-import { MOCK_KEYS } from "@/lib/mocks/config";
-import { COURSE_2_ID, COURSE_ID, concepts } from "@/lib/mocks/fixtures";
+import { createFakeFetch } from "@/lib/api-client/fake-api/fake-fetch";
+import {
+  COURSE_2_ID,
+  COURSE_ID,
+  concepts,
+} from "@/lib/api-client/fake-api/fixtures";
 import { ConceptPicker } from "./concept-picker";
 
 function mockClient(network?: (request: Request) => Promise<Response>) {
   return createApiClient({
     baseUrl: "http://test.local",
-    mocks: network ? new Set() : new Set(MOCK_KEYS),
-    mockDelayMs: 0,
-    fetch: network,
+    fetch: network ?? createFakeFetch(),
     onUnauthenticated: vi.fn(),
   });
 }

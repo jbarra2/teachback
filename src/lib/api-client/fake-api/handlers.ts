@@ -1,4 +1,4 @@
-// In-memory stand-ins for each endpoint (PLAN §7), keyed by the NEXT_PUBLIC_MOCK_ENDPOINTS name.
+// In-memory stand-ins for each endpoint (PLAN §7), for tests only (fake-fetch.ts).
 // They answer in the contract's shapes and statuses, so screens can't tell them from the real API.
 // Requests are checked with the server's own zod schemas, in the server's order: path id, then
 // body (400), then lookup (404).
@@ -10,7 +10,7 @@ import {
   IdParams,
   UploadDocumentForm,
 } from "@/lib/schemas";
-import type { MockKey } from "./config";
+import type { FakeEndpoint } from "./fake-fetch";
 import {
   COURSE_ID,
   DOCUMENT_ID,
@@ -29,7 +29,7 @@ type Schemas = components["schemas"];
 type Handler = (request: Request, params: string[]) => Promise<Response>;
 
 interface Route {
-  key: MockKey;
+  endpoint: FakeEndpoint;
   method: string;
   pattern: RegExp;
   handle: Handler;
@@ -85,13 +85,13 @@ async function readForm(request: Request): Promise<unknown> {
   }
 }
 
-/** A cuid-looking id for things the mocks create. */
-function mockId(prefix: string, n: number): string {
+/** A cuid-looking id for things the fake creates. */
+function fakeId(prefix: string, n: number): string {
   return `c${prefix}${String(n).padStart(24 - prefix.length, "0")}`;
 }
 
-/** Mock state, fresh per client so tests don't leak into each other. */
-export function createMockRoutes(): Route[] {
+/** Fake state, fresh per fetch so tests don't leak into each other. */
+export function createFakeRoutes(): Route[] {
   const courseList: Schemas["Course"][] = [...courses];
   const documents = new Map(
     Object.entries(documentsByCourse).map(([id, docs]) => [id, [...docs]]),
@@ -124,20 +124,20 @@ export function createMockRoutes(): Route[] {
 
   return [
     {
-      key: "courses",
+      endpoint: "courses",
       method: "GET",
       pattern: /^\/api\/courses$/,
       handle: async () => json(courseList),
     },
     {
-      key: "courses",
+      endpoint: "courses",
       method: "POST",
       pattern: /^\/api\/courses$/,
       handle: async (request) => {
         const body = parse(CreateCourseBody, await readJson(request));
         if (body.response) return body.response;
         const course = {
-          id: mockId("mockcourse", ++created),
+          id: fakeId("fakecourse", ++created),
           name: body.data.name,
           createdAt: new Date().toISOString(),
         };
@@ -147,7 +147,7 @@ export function createMockRoutes(): Route[] {
       },
     },
     {
-      key: "courses",
+      endpoint: "courses",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}$`),
       handle: withId(async (_request, id) => {
@@ -157,7 +157,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "concepts",
+      endpoint: "concepts",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/concepts$`),
       handle: withId(async (_request, id) => {
@@ -166,7 +166,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "map",
+      endpoint: "map",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/map$`),
       handle: withId(async (_request, id) => {
@@ -175,7 +175,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "next",
+      endpoint: "next",
       method: "GET",
       pattern: new RegExp(`^/api/courses/${ID}/next-concept$`),
       handle: withId(async (_request, id) => {
@@ -185,7 +185,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "documents",
+      endpoint: "documents",
       method: "POST",
       pattern: /^\/api\/documents$/,
       handle: async (request) => {
@@ -193,7 +193,7 @@ export function createMockRoutes(): Route[] {
         if (form.response) return form.response;
         const { courseId, title } = form.data;
         if (!findCourse(courseId)) return notFound();
-        const id = mockId("mockdoc", ++created);
+        const id = fakeId("fakedoc", ++created);
         documents.get(courseId)?.push({
           id,
           title,
@@ -205,7 +205,7 @@ export function createMockRoutes(): Route[] {
       },
     },
     {
-      key: "documents",
+      endpoint: "documents",
       method: "GET",
       pattern: new RegExp(`^/api/documents/${ID}$`),
       handle: withId(async (_request, id) => {
@@ -231,7 +231,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "question",
+      endpoint: "question",
       method: "POST",
       pattern: new RegExp(`^/api/concepts/${ID}/question$`),
       handle: withId(async (_request, id) => {
@@ -240,7 +240,7 @@ export function createMockRoutes(): Route[] {
       }),
     },
     {
-      key: "answer",
+      endpoint: "answer",
       method: "POST",
       pattern: new RegExp(`^/api/questions/${ID}/answer$`),
       handle: withId(async (request, id) => {
@@ -262,7 +262,7 @@ function decodeSegment(segment: string): string {
   }
 }
 
-/** The mock route for this request, if any, with its captured path parameters. */
+/** The fake route for this request, if any, with its captured path parameters. */
 export function matchRoute(
   routes: Route[],
   request: Request,

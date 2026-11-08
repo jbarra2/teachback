@@ -535,3 +535,25 @@ Proving the "5 parallel first answers" test really tests the race. It passed wit
 
 **What I learned:**
 A concurrency test that passes can be passing by luck, so force the interleaving you're worried about instead of hoping for it. And mutation testing is the quickest way to see which tests actually protect a rule: breaking each guard one at a time showed me exactly which assertion catches it.
+
+## T28 · Remove mocks + full integration (#28) · Nov 8, 2026
+
+**What I built:** The app now always talks to the real API. I removed the per-endpoint mock switch from the typed client (`src/lib/api-client/client.ts`) and the `NEXT_PUBLIC_MOCK_ENDPOINTS` variable, and deleted `src/lib/mocks/`. The in-memory endpoint handlers and fixtures moved to a test-only fake in `src/lib/api-client/fake-api/`, which tests pass in as the client's `fetch` (`createFakeFetch()`). The 13 frontend test files that rendered screens against the mocks now build their clients that way, with no assertions changed. New guard tests fail if an app file imports the fake or a test helper, if anything reads the old variable, or if a component test reaches the real network.
+
+**Skills & tools:** openapi-fetch, dependency injection for testability, Vitest (projects, setup files, `expectTypeOf`, fake timers), source-scanning guard tests, mutation testing, live checks over HTTP and in a real browser against `next dev`, scanning the production bundle
+
+**Asked Claude for:** Merge T26 and T23 on submission day (resolving T23's conflicts with main), then start T28. I approved editing the frontend tests' imports as lead, since the issue's exception only covered the mocks folder and the client.
+
+**Decided / dropped:**
+
+- Kept the in-memory API as a test-only fake instead of rewriting 13 test files to stub every response. Those tests drive whole screens, and hand-written stubs would have been weaker and taken hours on submission day.
+- The fake rejects any request it can't answer unless a test passes its own `fetch`, so a test can no longer fall through to the real network by accident.
+- Kept the fake's 0 ms delay as a real timer tick, like the old mocks, so component tests keep seeing the same async gap they were written against.
+- Added a no-network guard to the jsdom test setup after the review: a screen rendered without a test client would otherwise call whatever server is running on localhost.
+- Dropped a test I wrote for that guard because it passed without the guard, so it proved nothing.
+
+**Hardest part, and how I solved it:**
+Showing that "the app uses the real API" is actually true rather than just compiling. The production server rightly refused to start with the test secret and an http auth URL, so I ran the flow on `next dev` instead: sign up, course, upload, concepts, question, answer, map and next concept over HTTP, plus a browser walk of every screen. The first screenshots only showed loading spinners, because dev compiles each route on first visit, so I warmed the routes and waited longer until the pages showed the course and notes I had just created. I also scanned the production bundle for the fake's strings, after first checking that the scan could find strings that really are in the bundle.
+
+**What I learned:**
+A guard test only counts once you've seen it fail: I broke the code seven ways (an app import of the fake, a mock switch in the client, the variable back in the env file, a template-string import, and more) and checked that each was caught. A check that finds nothing can also be broken, so I confirm it finds something real before trusting a clean result.

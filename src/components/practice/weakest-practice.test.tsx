@@ -2,32 +2,34 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createApiClient } from "@/lib/api-client";
 import { GENERIC_MESSAGE, NETWORK_MESSAGE } from "@/lib/api-client/errors";
-import { MOCK_KEYS, type MockKey } from "@/lib/mocks/config";
+import {
+  FAKE_ENDPOINTS,
+  type FakeEndpoint,
+  createFakeFetch,
+} from "@/lib/api-client/fake-api/fake-fetch";
 import {
   COURSE_2_ID,
   COURSE_ID,
   nextConcept,
   question,
-} from "@/lib/mocks/fixtures";
+} from "@/lib/api-client/fake-api/fixtures";
 import { RATE_LIMITED_MESSAGE } from "./error-message";
 import { WeakestPractice } from "./weakest-practice";
 
 type Network = (request: Request) => Promise<Response>;
 
-const ALL_BUT_NEXT = MOCK_KEYS.filter((key) => key !== "next");
+const ALL_BUT_NEXT = FAKE_ENDPOINTS.filter((key) => key !== "next");
 
-/** A client whose `mocked` endpoints answer from src/lib/mocks; the rest go to `network`. */
+/** A client whose `mocked` endpoints answer from the fake API; the rest go to `network`. */
 function client({
-  mocked = MOCK_KEYS,
+  mocked = FAKE_ENDPOINTS,
   network = async () => {
     throw new Error("unexpected request");
   },
-}: { mocked?: readonly MockKey[]; network?: Network } = {}) {
+}: { mocked?: readonly FakeEndpoint[]; network?: Network } = {}) {
   return createApiClient({
     baseUrl: "http://test.local",
-    mocks: new Set(mocked),
-    mockDelayMs: 0,
-    fetch: vi.fn(network),
+    fetch: createFakeFetch({ endpoints: mocked, fetch: vi.fn(network) }),
     onUnauthenticated: vi.fn(),
   });
 }

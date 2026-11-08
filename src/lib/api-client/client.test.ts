@@ -1,5 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createApiClient, redirectToLogin, unwrap } from "./client";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  type ApiClientOptions,
+  createApiClient,
+  redirectToLogin,
+  unwrap,
+} from "./client";
 import { GENERIC_MESSAGE, NETWORK_MESSAGE } from "./errors";
 import { rejection } from "./test-helpers";
 
@@ -20,7 +25,6 @@ function clientWith(respond: (request: Request) => Promise<Response>) {
   const api = createApiClient({
     baseUrl: BASE,
     fetch: network,
-    mocks: new Set(),
     onUnauthenticated,
   });
   return { api, network, onUnauthenticated };
@@ -139,7 +143,6 @@ describe("createApiClient defaults", () => {
 
   it("redirects to /login on a 401 without being told how", async () => {
     const assign = stubLocation("/courses/abc");
-    vi.stubEnv("NEXT_PUBLIC_MOCK_ENDPOINTS", "");
     const api = createApiClient({ baseUrl: BASE, fetch: unauthenticated });
     await rejection(unwrap(api.GET("/api/courses")));
     expect(assign).toHaveBeenCalledOnce();
@@ -148,29 +151,51 @@ describe("createApiClient defaults", () => {
     expect(url.searchParams.get("next")).toBe("/courses/abc");
   });
 
-  it("uses the real network when NEXT_PUBLIC_MOCK_ENDPOINTS is empty", async () => {
-    vi.stubEnv("NEXT_PUBLIC_MOCK_ENDPOINTS", "");
+  it("uses the global fetch when none is given", async () => {
+    const globalFetch = vi.fn<(request: Request) => Promise<Response>>(
+      async () => Response.json([course]),
+    );
+    vi.stubGlobal("fetch", globalFetch);
+    const api = createApiClient({ baseUrl: BASE });
+    expect(await unwrap(api.GET("/api/courses"))).toEqual([course]);
+    expect(globalFetch).toHaveBeenCalledOnce();
+  });
+});
+
+// T28: the old per-endpoint mock switch is gone, so nothing can stand in for the real API.
+describe("no mock layer", () => {
+  it("sends every request to the network, even with the old mock variable set", async () => {
+    vi.stubEnv("NEXT_PUBLIC_MOCK_ENDPOINTS", "courses,answer");
     const network = vi.fn<(request: Request) => Promise<Response>>(async () =>
       Response.json([course]),
     );
     const api = createApiClient({ baseUrl: BASE, fetch: network });
-    expect(await unwrap(api.GET("/api/courses"))).toEqual([course]);
-    expect(network).toHaveBeenCalledOnce();
+    await unwrap(api.GET("/api/courses"));
+    await api.POST("/api/questions/{id}/answer", {
+      params: { path: { id: "cquestion0000000000000001" } },
+      body: { answer: "Water follows the solute." },
+    });
+    expect(network).toHaveBeenCalledTimes(2);
+    const [first, second] = network.mock.calls.map(([request]) => request);
+    expect(new URL(first!.url).pathname).toBe("/api/courses");
+    expect(second!.method).toBe("POST");
   });
 
-  it("mocks the endpoints NEXT_PUBLIC_MOCK_ENDPOINTS lists", async () => {
+  it("surfaces a network failure instead of falling back to fake data", async () => {
     vi.stubEnv("NEXT_PUBLIC_MOCK_ENDPOINTS", "courses");
-    const network = vi.fn<(request: Request) => Promise<Response>>(async () =>
-      Response.json([course]),
-    );
     const api = createApiClient({
       baseUrl: BASE,
-      fetch: network,
-      mockDelayMs: 0,
+      fetch: async () => {
+        throw new TypeError("Failed to fetch");
+      },
     });
-    const courses = await unwrap(api.GET("/api/courses"));
-    expect(courses.length).toBeGreaterThan(0);
-    expect(network).not.toHaveBeenCalled();
+    const error = await rejection(unwrap(api.GET("/api/courses")));
+    expect(error).toMatchObject({ code: "NETWORK_ERROR" });
+  });
+
+  it("has no option to turn mocks on (checked by tsc)", () => {
+    expectTypeOf<ApiClientOptions>().not.toHaveProperty("mocks");
+    expectTypeOf<ApiClientOptions>().not.toHaveProperty("mockDelayMs");
   });
 });
 

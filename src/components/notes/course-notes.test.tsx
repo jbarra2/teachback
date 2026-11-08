@@ -8,9 +8,8 @@ import {
   COURSE_ID,
   concepts,
   courses,
-} from "@/lib/mocks/fixtures";
-import { MOCK_KEYS } from "@/lib/mocks/config";
-import { createMockFetch } from "@/lib/mocks/fetch";
+} from "@/lib/api-client/fake-api/fixtures";
+import { createFakeFetch } from "@/lib/api-client/fake-api/fake-fetch";
 import { POLL_MS } from "./document-list";
 import { CourseNotes } from "./course-notes";
 import { errorResponse, mockClient, networkClient } from "./test-clients";
@@ -200,15 +199,15 @@ describe("CourseNotes", () => {
   // Regression (PR #59 review): an answer for the previous course, arriving after the switch,
   // used to replace the current one.
   it("ignores a late answer for a course it has moved away from", async () => {
-    const mocks = createMockFetch({ enabled: new Set(MOCK_KEYS), delayMs: 0 });
+    const fake = createFakeFetch();
     let releaseFirst: () => void = () => {};
     const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve));
     const { client } = networkClient(async (request) => {
       if (new URL(request.url).pathname !== `/api/courses/${COURSE_ID}`)
-        return mocks(request);
+        return fake(request);
       // Like a server that answers anyway: the copy drops the (by then aborted) signal.
       await firstHeld;
-      return mocks(new Request(request.url));
+      return fake(new Request(request.url));
     });
     const { rerender } = render(
       <CourseNotes courseId={COURSE_ID} client={client} />,

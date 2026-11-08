@@ -3,7 +3,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type DocumentSummary } from "@/lib/api-client";
-import { COURSE_ID } from "@/lib/mocks/fixtures";
+import { COURSE_ID } from "@/lib/api-client/fake-api/fixtures";
 import { MAX_FILE_BYTES } from "./file-checks";
 import { mockClient } from "./test-clients";
 import type { uploadDocument } from "./upload-document";

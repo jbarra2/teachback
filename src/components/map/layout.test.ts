@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CourseMap, MasteryState } from "@/lib/api-client";
-import { courseMap, CONCEPT_IDS, COURSE_ID } from "@/lib/mocks/fixtures";
+import {
+  courseMap,
+  CONCEPT_IDS,
+  COURSE_ID,
+} from "@/lib/api-client/fake-api/fixtures";
 import { layoutMap, NODE_HEIGHT, NODE_WIDTH, practiceHref } from "./layout";
 
 const STATES: MasteryState[] = ["MASTERED", "REVIEW", "PRACTICE"];
