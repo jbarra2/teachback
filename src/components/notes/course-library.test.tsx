@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { GENERIC_MESSAGE } from "@/lib/api-client/errors";
-import { COURSE_ID, courses } from "@/lib/mocks/fixtures";
+import { COURSE_ID, courses } from "@/lib/api-client/fake-api/fixtures";
 import { CourseLibrary } from "./course-library";
 import { errorResponse, mockClient, networkClient } from "./test-clients";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { unwrap } from "@/lib/api-client";
 import { rejection } from "@/lib/api-client/test-helpers";
-import { COURSE_ID } from "@/lib/mocks/fixtures";
+import { COURSE_ID } from "@/lib/api-client/fake-api/fixtures";
 import { mockClient, networkClient } from "./test-clients";
 import { uploadDocument } from "./upload-document";
 

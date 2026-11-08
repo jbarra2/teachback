@@ -1,16 +1,17 @@
-// Aborting a request on the mocks, in jsdom like the app's components. openapi-fetch doesn't check
-// the signal itself, so the mock fetch has to, or an aborted request still gets answered.
+// Aborting a request on the fake API, in jsdom like the app's components. openapi-fetch doesn't
+// check the signal itself, so the fake fetch has to, or an aborted request still gets answered.
 import { describe, expect, it, vi } from "vitest";
-import { MOCK_KEYS } from "@/lib/mocks/config";
 import { createApiClient, isAbortError, unwrap } from ".";
+import { createFakeFetch } from "./fake-api/fake-fetch";
 
 function client() {
   return createApiClient({
     baseUrl: "http://test.local",
-    mocks: new Set(MOCK_KEYS),
-    mockDelayMs: 50,
-    fetch: vi.fn(async () => {
-      throw new Error("unexpected request");
+    fetch: createFakeFetch({
+      delayMs: 50,
+      fetch: vi.fn(async () => {
+        throw new Error("unexpected request");
+      }),
     }),
     onUnauthenticated: vi.fn(),
   });
@@ -18,7 +19,7 @@ function client() {
 
 const NAME = "Aborted course";
 
-describe("aborting a mocked request", () => {
+describe("aborting a fake request", () => {
   it("rejects with an abort error during the delay, and the handler never runs", async () => {
     const api = client();
     const controller = new AbortController();

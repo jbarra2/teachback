@@ -1,5 +1,5 @@
-// Demo data for the mocks, typed with the generated contract types: change openapi.yaml and this
-// file stops compiling until it matches again.
+// Demo data for the test-only fake API, typed with the generated contract types: change
+// openapi.yaml and this file stops compiling until it matches again.
 import type { components } from "@/lib/api-client/schema";
 
 type Schemas = components["schemas"];
@@ -131,7 +131,7 @@ const evidence = [
   },
 ] satisfies Schemas["Evidence"][];
 
-/** One of each verdict; the answer mock cycles through them. */
+/** One of each verdict; the fake answer endpoint cycles through them. */
 export const answerResults = [
   {
     attemptId: "cattempt00000000000000001",

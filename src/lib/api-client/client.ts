@@ -2,8 +2,6 @@
 // Browser use: requests go to this origin, with the session cookie. Wrap calls in unwrap() to get
 // the data or an ApiError.
 import createClient, { type Middleware } from "openapi-fetch";
-import { enabledMockEndpoints, type MockKey } from "@/lib/mocks/config";
-import { createMockFetch } from "@/lib/mocks/fetch";
 import { isAbortError, networkError, toApiError } from "./errors";
 import type { paths } from "./schema";
 
@@ -26,27 +24,18 @@ export function redirectToLogin(): void {
 export interface ApiClientOptions {
   /** Defaults to this page's origin. */
   baseUrl?: string;
-  /** The network. Defaults to the global fetch. */
+  /** The network. Defaults to the global fetch. Tests pass createFakeFetch() here. */
   fetch?: (request: Request) => Promise<Response>;
-  /** Endpoints answered by src/lib/mocks. Defaults to NEXT_PUBLIC_MOCK_ENDPOINTS. */
-  mocks?: ReadonlySet<MockKey>;
   /** Called on any 401. Defaults to redirectToLogin. */
   onUnauthenticated?: () => void;
-  /** Mock latency in ms (tests use 0). */
-  mockDelayMs?: number;
 }
 
 export function createApiClient({
   baseUrl = globalThis.location?.origin ?? "",
-  fetch,
-  mocks = enabledMockEndpoints(),
+  fetch = (request) => globalThis.fetch(request),
   onUnauthenticated = redirectToLogin,
-  mockDelayMs,
 }: ApiClientOptions = {}) {
-  const client = createClient<paths>({
-    baseUrl,
-    fetch: createMockFetch({ enabled: mocks, fetch, delayMs: mockDelayMs }),
-  });
+  const client = createClient<paths>({ baseUrl, fetch });
   const authRedirect: Middleware = {
     onResponse({ response }) {
       if (response.status === 401) onUnauthenticated();

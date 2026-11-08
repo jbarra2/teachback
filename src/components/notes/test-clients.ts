@@ -1,19 +1,18 @@
 // API clients for the notes component tests. Not imported by app code.
 import { vi } from "vitest";
 import { createApiClient } from "@/lib/api-client";
-import { MOCK_KEYS } from "@/lib/mocks/config";
+import { createFakeFetch } from "@/lib/api-client/fake-api/fake-fetch";
 
-/** Every endpoint answered by src/lib/mocks, with fresh state and no delay. */
+/** Every endpoint answered by the fake API, with fresh state and no delay. */
 export function mockClient() {
   return createApiClient({
     baseUrl: "http://test.local",
-    mocks: new Set(MOCK_KEYS),
-    mockDelayMs: 0,
+    fetch: createFakeFetch(),
     onUnauthenticated: () => {},
   });
 }
 
-/** A client whose every request goes to `respond`, with no mocks. */
+/** A client whose every request goes to `respond`, with no fake. */
 export function networkClient(
   respond: (request: Request) => Promise<Response>,
 ) {
@@ -21,7 +20,6 @@ export function networkClient(
   const client = createApiClient({
     baseUrl: "http://test.local",
     fetch: network,
-    mocks: new Set(),
     onUnauthenticated: () => {},
   });
   return { client, network };

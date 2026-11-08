@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { AnswerResult, Feedback } from "@/lib/api-client";
-import { answerResults } from "@/lib/mocks/fixtures";
+import { answerResults } from "@/lib/api-client/fake-api/fixtures";
 import { FeedbackDisplay, feedbackNotices } from "./feedback-display";
 
 const [correct, partial, incorrect] = answerResults;

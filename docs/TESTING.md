@@ -73,7 +73,7 @@ A bare `npx vitest` (or an editor's Vitest extension) runs all three projects, i
 | `src/lib/api/**` (withApi, the auth route: every request passes through) | 100%  | 100% (and 100% functions and statements) |
 | `src/lib/ingest/**`                                                      | 90%   | 85%                                      |
 
-Coverage `include` lists exactly these folders, so the frontend client, mocks, generated code and config files don't distort the numbers. UI components are covered by component tests and e2e instead of thresholds.
+Coverage `include` lists exactly these folders, so the frontend client, the test-only fake API, generated code and config files don't distort the numbers. UI components are covered by component tests and e2e instead of thresholds.
 
 ---
 
