@@ -65,6 +65,7 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
       "db:up",
       "db:update",
       "dev",
+      "eval",
       "format",
       "format:check",
       "lint",
@@ -79,6 +80,11 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
       "typecheck",
       "verify",
     ]);
+  });
+
+  // T27: the AI eval spends real API credit, so it only ever runs this one reviewed script.
+  it("eval runs the reviewed eval script, loading .env only if it exists", () => {
+    expect(scripts.eval).toBe("tsx --env-file-if-exists=.env scripts/eval.ts");
   });
 
   it("audit fails on high and critical production advisories", () => {

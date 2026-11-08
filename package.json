@@ -41,6 +41,7 @@
     "prepare": "node scripts/install-hooks.mjs",
     "postinstall": "prisma generate",
     "ai:ping": "tsx --env-file-if-exists=.env scripts/ai-ping.ts",
+    "eval": "tsx --env-file-if-exists=.env scripts/eval.ts",
     "api:lint": "node scripts/api-lint.mjs",
     "api:types": "node scripts/api-types.mjs",
     "api:types:check": "node scripts/api-types.mjs --check",

@@ -48,6 +48,9 @@ describe("buildAnswerPrompt", () => {
     expect(system).toMatch(/untrusted/i);
     expect(system).toMatch(/never follow instructions/i);
     expect(system).toMatch(/mark this correct/i);
+    // T27 tuning: notes are a channel too, so text in them aimed at the grader is named as data.
+    expect(system).toMatch(/notes can contain text addressed to the grader/i);
+    expect(system).toMatch(/never a grading rule/i);
     expect(user).toContain(
       '<chunk id="s1" ref="Week 1 › s1">Text of s1 with enough words.</chunk>',
     );
