@@ -513,3 +513,25 @@ Making sure only this concept's notes reach the prompt. Concepts share documents
 
 **What I learned:**
 A refinement on a zod schema is a neat way to make "unusable" model output retry without extra code, but it only works because the provider validates the reply itself. I checked the library's behaviour before relying on it rather than assuming.
+
+## T24 · Mastery updates on answer (transactional, concurrency-safe) (#24) · Nov 7, 2026
+
+**What I built:** Every graded answer now updates the concept's mastery in the same transaction as its Attempt, in `src/lib/services/answer.ts`. One atomic `INSERT … ON CONFLICT DO UPDATE` applies PLAN §9's rule (`score + 0.5 × (result − score)`, one more attempt, seen now), so it works for the first answer and for parallel ones. A LOW-confidence grade leaves mastery untouched. The answer response, the concepts list and the concept map all show the new state.
+
+**Skills & tools:** PostgreSQL upserts and row locking, Prisma 7 interactive transactions and tagged-template `$queryRaw`, Vitest integration tests with transaction spies and a concurrency barrier, mutation testing, live checks over HTTP against `next dev`
+
+**Asked Claude for:** Take T24 and T27 over from the AI track, since neither had been started on the last day, and build T24 on the transaction T22 left for it once T22 merged.
+
+**Decided / dropped:**
+
+- Kept the update math in SQL, but fed it T19's `LEARNING_RATE` and `RESULT_VALUE`, so the database and `applyResult` can't drift apart. A test walks PLAN §9's worked examples step by step through the real endpoint.
+- LOW confidence runs no mastery statement at all, not even the attempt count, matching `applyResult`: a shaky grade can't count toward the two attempts MASTERED needs.
+- Added a case the issue didn't ask for: a question or course deleted while its answer is being graded now reads as not found (404) instead of a generic 500, with nothing saved. It was a suggestion from the T22 review.
+- Made `recordAttempt` private, since it trusts the user and concept ids it's given and only the ownership-scoped caller should supply them.
+- No change to the concepts list or the map: both already read the Mastery table, so a test proves they reflect the update.
+
+**Hardest part, and how I solved it:**
+Proving the "5 parallel first answers" test really tests the race. It passed with the correct code, but a test review pointed out that a lost-update version would only fail if the five transactions happened to overlap. I added a barrier after each Attempt insert, so all five reach the mastery step together, then confirmed with a mutation that a read-then-write version fails every time. The same review found that my 404 catch wasn't pinned to the foreign-key error, so a write conflict could have been reported as "not found"; a test with a different database error now proves it's a 500.
+
+**What I learned:**
+A concurrency test that passes can be passing by luck, so force the interleaving you're worried about instead of hoping for it. And mutation testing is the quickest way to see which tests actually protect a rule: breaking each guard one at a time showed me exactly which assertion catches it.
