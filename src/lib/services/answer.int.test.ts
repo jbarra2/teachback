@@ -1,12 +1,25 @@
 // T22 · Answer evaluation against the real stack (db-test, Better Auth sessions, withApi, the fake
 // AI provider): the security matrix (TESTING §3) for POST /api/questions/{id}/answer and its
-// behaviour: grounding, prompt injection, escaped characters in quotes, and mastery left as it is
-// until T24. Every response is checked against openapi.yaml (S7).
+// behaviour: grounding, prompt injection and escaped characters in quotes. T24 · the mastery update
+// (PLAN §9) in the Attempt's transaction: parallel answers, LOW confidence, rollback, and the
+// concepts list and map reflecting it. Every response is checked against openapi.yaml (S7).
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import * as conceptsRoute from "@/app/api/courses/[id]/concepts/route";
+import * as mapRoute from "@/app/api/courses/[id]/map/route";
 import * as answerRoute from "@/app/api/questions/[id]/answer/route";
+import { Prisma } from "@/generated/prisma/client";
 import { FAKE_FAILURE_MODES, setFakeFailure } from "@/lib/ai/fake";
 import type * as providerModule from "@/lib/ai/provider";
 import { db } from "@/lib/db";
+import {
+  applyResult,
+  masteryState,
+  UNSEEN,
+  type Confidence,
+  type Mastery,
+  type Verdict,
+} from "@/lib/mastery";
+import { answerQuestion } from "./answer";
 import {
   resetRateLimitOverrides,
   setRateLimitOverrides,
@@ -25,6 +38,8 @@ import { expectMatchesOpenApi } from "../../../tests/helpers/openapi-assert";
 const ai = vi.hoisted(() => ({
   prompts: [] as { system: string; user: string }[],
   output: null as null | (() => unknown),
+  /** Runs while the model is "thinking": something that happens during the AI call. */
+  during: null as null | (() => Promise<unknown>),
 }));
 vi.mock("@/lib/ai/provider", async (importOriginal) => {
   const actual = await importOriginal<typeof providerModule>();
@@ -32,6 +47,7 @@ vi.mock("@/lib/ai/provider", async (importOriginal) => {
     ...actual,
     generateJson: (async (schema, prompt, options) => {
       ai.prompts.push(prompt);
+      if (ai.during) await ai.during();
       if (ai.output) {
         const { AiError } = await import("@/lib/ai/errors");
         const parsed = schema.safeParse(ai.output());
@@ -58,6 +74,7 @@ beforeAll(async () => {
 afterEach(() => {
   ai.prompts = [];
   ai.output = null;
+  ai.during = null;
   setFakeFailure(null);
   resetRateLimitOverrides();
   vi.restoreAllMocks();
@@ -155,6 +172,32 @@ async function expectError(res: Response, code: string) {
 const attemptCount = (questionId: string) =>
   db.attempt.count({ where: { questionId } });
 
+/** Nothing from the answer was kept: no Attempt, and no Mastery row for its concept. */
+async function expectNothingSaved(question: { id: string; conceptId: string }) {
+  expect(await attemptCount(question.id)).toBe(0);
+  expect(
+    await db.mastery.count({ where: { conceptId: question.conceptId } }),
+  ).toBe(0);
+}
+
+const masteryOf = (userId: string, conceptId: string) =>
+  db.mastery.findUnique({
+    where: { userId_conceptId: { userId, conceptId } },
+    select: { score: true, attempts: true, lastSeenAt: true },
+  });
+
+/** The model's grading, with one quote that is in SECTION(0), so verification keeps confidence. */
+function grade(verdict: Verdict, confidence: Confidence = "HIGH") {
+  ai.output = () => ({
+    verdict,
+    whatCorrect: "You named the process.",
+    whatMissing: "",
+    evidence: [{ chunkId: "s1", quote: "cells divide by mitosis" }],
+    confidence,
+    outsideNotes: false,
+  });
+}
+
 interface Body {
   attemptId: string;
   feedback: {
@@ -203,7 +246,8 @@ describe("POST /api/questions/{id}/answer", () => {
         quote: firstWords(chunk.text, 12),
       })),
     );
-    expect(body.mastery).toEqual({ state: "PRACTICE", score: 0 });
+    // A first PARTIAL answer: 0 + 0.5 × (0.5 − 0) (PLAN §9).
+    expect(body.mastery).toEqual({ state: "PRACTICE", score: 0.25 });
 
     const saved = await db.attempt.findUniqueOrThrow({
       where: { id: body.attemptId },
@@ -396,35 +440,348 @@ describe("POST /api/questions/{id}/answer", () => {
     });
   });
 
-  it("doesn't change mastery yet (T24), and reports it as it stands", async () => {
-    const { question, concept } = await addQuestion(ada);
-    const seen = new Date("2026-11-01T10:00:00Z");
-    await db.mastery.create({
-      data: {
-        userId: ada.id,
-        conceptId: concept.id,
-        score: 0.8,
-        attempts: 3,
-        lastSeenAt: seen,
-      },
-    });
-    const body = (await expectMatchesOpenApi(
-      await answerAs(ada, question.id),
-      OP,
-    )) as Body;
-    expect(body.mastery).toEqual({ state: "MASTERED", score: 0.8 });
-    expect(
-      await db.mastery.findUniqueOrThrow({
-        where: { userId_conceptId: { userId: ada.id, conceptId: concept.id } },
-      }),
-    ).toMatchObject({ score: 0.8, attempts: 3, lastSeenAt: seen });
+  describe("mastery (T24, PLAN §9)", () => {
+    const SEEN = new Date("2026-11-01T10:00:00Z");
 
-    // An unseen concept stays unseen: no Mastery row is created.
-    const fresh = await addQuestion(ada);
-    expect((await answerAs(ada, fresh.question.id)).status).toBe(200);
-    expect(
-      await db.mastery.count({ where: { conceptId: fresh.concept.id } }),
-    ).toBe(0);
+    async function seedMastery(
+      conceptId: string,
+      score: number,
+      attempts: number,
+    ) {
+      await db.mastery.create({
+        data: { userId: ada.id, conceptId, score, attempts, lastSeenAt: SEEN },
+      });
+    }
+
+    async function answered(questionId: string) {
+      const res = await answerAs(ada, questionId);
+      expect(res.status).toBe(200);
+      return (await expectMatchesOpenApi(res, OP)) as Body;
+    }
+
+    it("the first answer creates the concept's mastery: score 0.5 × result, one attempt, seen now", async () => {
+      const { question, concept } = await addQuestion(ada);
+      const before = Date.now();
+      const body = await answered(question.id); // the fake grades PARTIAL, MEDIUM
+      const after = Date.now();
+      expect(body.mastery).toEqual({ state: "PRACTICE", score: 0.25 });
+      const row = await masteryOf(ada.id, concept.id);
+      expect(row).toMatchObject({ score: 0.25, attempts: 1 });
+      // Stored as the moment of the answer, in UTC like every other timestamp Prisma writes.
+      const seen = row?.lastSeenAt?.getTime() ?? 0;
+      expect(seen).toBeGreaterThanOrEqual(before);
+      expect(seen).toBeLessThanOrEqual(after);
+    });
+
+    it.each<[string, Verdict[], number[], string[]]>([
+      [
+        "two correct answers from 0",
+        ["CORRECT", "CORRECT"],
+        [0.5, 0.75],
+        ["REVIEW", "MASTERED"],
+      ],
+      [
+        "always partial, never mastered",
+        ["PARTIAL", "PARTIAL", "PARTIAL"],
+        [0.25, 0.375, 0.4375],
+        ["PRACTICE", "PRACTICE", "REVIEW"],
+      ],
+      [
+        "a first wrong answer still counts as seen",
+        ["INCORRECT"],
+        [0],
+        ["PRACTICE"],
+      ],
+      [
+        "a wrong answer at 0.75",
+        ["CORRECT", "CORRECT", "INCORRECT"],
+        [0.5, 0.75, 0.375],
+        ["REVIEW", "MASTERED", "PRACTICE"],
+      ],
+    ])(
+      "PLAN §9's worked example: %s, step by step, the same as applyResult",
+      async (_name, verdicts, scores, states) => {
+        const { question, concept } = await addQuestion(ada);
+        let expected: Mastery = UNSEEN;
+        for (const [step, verdict] of verdicts.entries()) {
+          grade(verdict);
+          const body = await answered(question.id);
+          expected = applyResult(
+            expected,
+            { verdict, confidence: "HIGH" },
+            new Date(),
+          );
+          expect(expected.score).toBe(scores[step]);
+          expect(body.mastery).toEqual({
+            state: states[step],
+            score: scores[step],
+          });
+          expect(masteryState(expected)).toBe(states[step]);
+          expect(await masteryOf(ada.id, concept.id)).toMatchObject({
+            score: scores[step],
+            attempts: step + 1,
+          });
+        }
+      },
+    );
+
+    it("updates an existing row: score moves toward the result, one more attempt, seen again", async () => {
+      const { question, concept } = await addQuestion(ada);
+      await seedMastery(concept.id, 0.8, 3);
+      grade("INCORRECT");
+      const before = Date.now();
+      const body = await answered(question.id);
+      expect(body.mastery).toEqual({ state: "REVIEW", score: 0.4 });
+      const row = await masteryOf(ada.id, concept.id);
+      expect(row).toMatchObject({ score: 0.4, attempts: 4 });
+      expect(row?.lastSeenAt?.getTime()).toBeGreaterThanOrEqual(before);
+      expect(row?.lastSeenAt?.getTime()).toBeLessThanOrEqual(Date.now());
+    });
+
+    it.each<[string, () => void]>([
+      ["the model grades LOW", () => grade("CORRECT", "LOW")],
+      [
+        "verification finds no evidence (fabricated_evidence)",
+        () => setFakeFailure("fabricated_evidence"),
+      ],
+    ])(
+      "LOW confidence (%s): the Attempt is saved, but mastery is left exactly as it was",
+      async (_name, setUp) => {
+        const { question, concept } = await addQuestion(ada);
+        await seedMastery(concept.id, 0.8, 3);
+        setUp();
+        const body = await answered(question.id);
+        expect(body.feedback.confidence).toBe("LOW");
+        // Reported as it stands: 0.8 after 3 attempts is MASTERED.
+        expect(body.mastery).toEqual({ state: "MASTERED", score: 0.8 });
+        expect(await masteryOf(ada.id, concept.id)).toEqual({
+          score: 0.8,
+          attempts: 3,
+          lastSeenAt: SEEN,
+        });
+        expect(
+          await db.attempt.findUniqueOrThrow({
+            where: { id: body.attemptId },
+          }),
+        ).toMatchObject({ questionId: question.id, confidence: "LOW" });
+
+        // An unseen concept stays unseen: a LOW grade can't count toward MASTERED's two attempts.
+        const fresh = await addQuestion(ada);
+        setUp();
+        expect((await answered(fresh.question.id)).mastery).toEqual({
+          state: "PRACTICE",
+          score: 0,
+        });
+        expect(await masteryOf(ada.id, fresh.concept.id)).toBeNull();
+        expect(await attemptCount(fresh.question.id)).toBe(1);
+      },
+    );
+
+    it("5 parallel first answers to the same concept all count: attempts = 5, none lost", async () => {
+      const { question, concept } = await addQuestion(ada);
+      // A barrier after each Attempt insert: all 5 transactions are open and reach the mastery step
+      // together, so a read-then-write update would read stale rows every time, not by luck.
+      let arrived = 0;
+      let releaseAll = () => {};
+      const allArrived = new Promise<void>((resolve) => {
+        releaseAll = resolve;
+      });
+      const realTransaction = db.$transaction.bind(db);
+      vi.spyOn(db, "$transaction").mockImplementation((save) =>
+        realTransaction((tx) =>
+          save(
+            new Proxy(tx, {
+              get: (target, key) =>
+                key === "attempt"
+                  ? {
+                      create: async (
+                        args: Parameters<typeof tx.attempt.create>[0],
+                      ) => {
+                        const created = await target.attempt.create(args);
+                        if (++arrived === 5) releaseAll();
+                        await allArrived;
+                        return created;
+                      },
+                    }
+                  : Reflect.get(target, key),
+            }),
+          ),
+        ),
+      );
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          answerQuestion(ada.id, question.id, ANSWER),
+        ),
+      );
+      // Each PARTIAL answer is applied on top of the one before it, in some order.
+      const steps: number[] = [];
+      let expected: Mastery = UNSEEN;
+      for (let i = 0; i < 5; i++) {
+        expected = applyResult(
+          expected,
+          { verdict: "PARTIAL", confidence: "MEDIUM" },
+          new Date(),
+        );
+        steps.push(expected.score);
+      }
+      expect(
+        results
+          .map((result) => result?.mastery.score)
+          .sort((a, b) => (a ?? 0) - (b ?? 0)),
+      ).toEqual(steps);
+      expect(arrived).toBe(5);
+      expect(await masteryOf(ada.id, concept.id)).toMatchObject({
+        score: expected.score,
+        attempts: 5,
+      });
+      expect(await attemptCount(question.id)).toBe(5);
+    });
+
+    it("another database error in the mastery step (a write conflict) → 500, not a lost answer read as not found", async () => {
+      const { question, concept } = await addQuestion(ada);
+      await seedMastery(concept.id, 0.5, 1);
+      grade("CORRECT");
+      const realTransaction = db.$transaction.bind(db);
+      vi.spyOn(db, "$transaction").mockImplementationOnce((save) =>
+        realTransaction((tx) =>
+          save(
+            new Proxy(tx, {
+              get: (target, key) =>
+                key === "$queryRaw"
+                  ? () =>
+                      Promise.reject(
+                        new Prisma.PrismaClientKnownRequestError(
+                          "write conflict",
+                          { code: "P2034", clientVersion: "test" },
+                        ),
+                      )
+                  : Reflect.get(target, key),
+            }),
+          ),
+        ),
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await answerAs(ada, question.id);
+      expect(res.status).toBe(500);
+      await expectError(res, "INTERNAL");
+      expect(await attemptCount(question.id)).toBe(0);
+      expect(await masteryOf(ada.id, concept.id)).toEqual({
+        score: 0.5,
+        attempts: 1,
+        lastSeenAt: SEEN,
+      });
+    });
+
+    it("a failure in the mastery step → 500, and the Attempt is rolled back with it", async () => {
+      const { question, concept } = await addQuestion(ada);
+      await seedMastery(concept.id, 0.5, 1);
+      grade("CORRECT");
+      const realTransaction = db.$transaction.bind(db);
+      // The real transaction, with the mastery statement failing inside it.
+      vi.spyOn(db, "$transaction").mockImplementationOnce((save) =>
+        realTransaction((tx) =>
+          save(
+            new Proxy(tx, {
+              get: (target, key) =>
+                key === "$queryRaw"
+                  ? () => Promise.reject(new Error("SECRET-DETAIL in mastery"))
+                  : Reflect.get(target, key),
+            }),
+          ),
+        ),
+      );
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = await answerAs(ada, question.id);
+      expect(res.status).toBe(500);
+      const body = await expectMatchesOpenApi(res, OP);
+      expect(body).toMatchObject({ error: { code: "INTERNAL" } });
+      expect(JSON.stringify(body)).not.toContain("SECRET");
+      expect(await attemptCount(question.id)).toBe(0);
+      expect(await masteryOf(ada.id, concept.id)).toEqual({
+        score: 0.5,
+        attempts: 1,
+        lastSeenAt: SEEN,
+      });
+    });
+
+    it("another user answering my question never touches my mastery", async () => {
+      const { question, concept } = await addQuestion(ada);
+      await seedMastery(concept.id, 0.5, 1);
+      grade("CORRECT");
+      const res = await answerAs(grace, question.id);
+      expect(res.status).toBe(404);
+      await expectError(res, "NOT_FOUND");
+      expect(await masteryOf(ada.id, concept.id)).toEqual({
+        score: 0.5,
+        attempts: 1,
+        lastSeenAt: SEEN,
+      });
+      expect(await masteryOf(grace.id, concept.id)).toBeNull();
+      expect(await attemptCount(question.id)).toBe(0);
+    });
+
+    it("the concepts list and the map show the new state and score", async () => {
+      const { course, question, concept } = await addQuestion(ada);
+      grade("CORRECT");
+      await answered(question.id);
+      await answered(question.id);
+
+      const list = await as(ada).call(conceptsRoute.GET, {
+        url: `/api/courses/${course.id}/concepts`,
+        params: { id: course.id },
+      });
+      expect(list.status).toBe(200);
+      expect(
+        await expectMatchesOpenApi(list, "GET /api/courses/{id}/concepts"),
+      ).toContainEqual(
+        expect.objectContaining({
+          id: concept.id,
+          state: "MASTERED",
+          score: 0.75,
+          attempts: 2,
+        }),
+      );
+
+      const map = await as(ada).call(mapRoute.GET, {
+        url: `/api/courses/${course.id}/map`,
+        params: { id: course.id },
+      });
+      expect(map.status).toBe(200);
+      const { nodes } = (await expectMatchesOpenApi(
+        map,
+        "GET /api/courses/{id}/map",
+      )) as { nodes: { id: string; state: string; score: number }[] };
+      expect(nodes).toContainEqual(
+        expect.objectContaining({
+          id: concept.id,
+          state: "MASTERED",
+          score: 0.75,
+        }),
+      );
+    });
+
+    it.each<
+      [string, (ids: { course: string; question: string }) => Promise<unknown>]
+    >([
+      [
+        "its course",
+        ({ course }) => db.course.delete({ where: { id: course } }),
+      ],
+      [
+        "the question",
+        ({ question }) => db.question.delete({ where: { id: question } }),
+      ],
+    ])(
+      "%s deleted while the answer is being graded → 404, and nothing is saved",
+      async (_name, remove) => {
+        const { course, question } = await addQuestion(ada);
+        ai.during = () => remove({ course: course.id, question: question.id });
+        const res = await answerAs(ada, question.id);
+        expect(res.status).toBe(404);
+        await expectError(res, "NOT_FOUND");
+        await expectNothingSaved(question);
+      },
+    );
   });
 
   it("S1: no session → 401, and no Attempt is saved", async () => {
@@ -437,7 +794,7 @@ describe("POST /api/questions/{id}/answer", () => {
     });
     expect(res.status).toBe(401);
     await expectError(res, "UNAUTHENTICATED");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 
   it("S2: another user's question → 404, the same as one that doesn't exist, and nothing is saved or sent", async () => {
@@ -447,7 +804,7 @@ describe("POST /api/questions/{id}/answer", () => {
       expect(res.status).toBe(404);
       await expectError(res, "NOT_FOUND");
     }
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
     expect(ai.prompts).toHaveLength(0);
   });
 
@@ -457,7 +814,7 @@ describe("POST /api/questions/{id}/answer", () => {
     const res = await answerAs(ada, question.id);
     expect(res.status).toBe(404);
     await expectError(res, "NOT_FOUND");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 
   it.each([
@@ -476,7 +833,7 @@ describe("POST /api/questions/{id}/answer", () => {
     });
     expect(res.status).toBe(403);
     await expectError(res, "FORBIDDEN_ORIGIN");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 
   it("S4: a malformed id → 400", async () => {
@@ -514,7 +871,7 @@ describe("POST /api/questions/{id}/answer", () => {
       expect(error.error.code).toBe("VALIDATION_ERROR");
       if (field) expect(error.error.details.fieldErrors[field]).toBeDefined();
       expect(JSON.stringify(error)).not.toMatch(/at \w+ \(|\.ts:\d+/);
-      expect(await attemptCount(question.id)).toBe(0);
+      await expectNothingSaved(question);
       expect(ai.prompts).toHaveLength(0);
     },
   );
@@ -549,7 +906,7 @@ describe("POST /api/questions/{id}/answer", () => {
       const res = await rawPost(ada, question.id, body, type);
       expect(res.status).toBe(400);
       await expectError(res, "VALIDATION_ERROR");
-      expect(await attemptCount(question.id)).toBe(0);
+      await expectNothingSaved(question);
     },
   );
 
@@ -560,7 +917,7 @@ describe("POST /api/questions/{id}/answer", () => {
     });
     expect(res.status).toBe(413);
     await expectError(res, "PAYLOAD_TOO_LARGE");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 
   it("S6: past the AI limit → 429 with Retry-After, per user, and no second Attempt", async () => {
@@ -591,7 +948,7 @@ describe("POST /api/questions/{id}/answer", () => {
         },
       });
       expect(res.headers.get("x-request-id")).toBeTruthy();
-      expect(await attemptCount(question.id)).toBe(0);
+      await expectNothingSaved(question);
     },
   );
 
@@ -608,7 +965,7 @@ describe("POST /api/questions/{id}/answer", () => {
     const res = await answerAs(ada, question.id);
     expect(res.status).toBe(502);
     await expectError(res, "AI_UNAVAILABLE");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 
   it("S9: a database error after the Attempt insert → 500 with a request id, never the error's text, and the insert is rolled back", async () => {
@@ -631,6 +988,6 @@ describe("POST /api/questions/{id}/answer", () => {
     const body = await expectMatchesOpenApi(res, OP);
     expect(body).toMatchObject({ error: { code: "INTERNAL" } });
     expect(JSON.stringify(body)).not.toContain("SECRET");
-    expect(await attemptCount(question.id)).toBe(0);
+    await expectNothingSaved(question);
   });
 });
