@@ -100,6 +100,14 @@ export function createMockRoutes(): Route[] {
   const polls = new Map<string, number>();
   let created = 0;
   let answered = 0;
+  // Practice weakest (T26) moves on: the fixture's concept first, then the others in turn.
+  const nextConcepts = [
+    nextConcept,
+    ...concepts
+      .filter(({ id }) => id !== nextConcept.conceptId)
+      .map(({ id, name, state }) => ({ conceptId: id, name, state })),
+  ];
+  let picked = 0;
 
   const findCourse = (id: string) =>
     courseList.find((course) => course.id === id);
@@ -172,7 +180,8 @@ export function createMockRoutes(): Route[] {
       pattern: new RegExp(`^/api/courses/${ID}/next-concept$`),
       handle: withId(async (_request, id) => {
         if (!findCourse(id)) return notFound();
-        return json(id === COURSE_ID ? nextConcept : null);
+        if (id !== COURSE_ID) return json(null);
+        return json(nextConcepts[picked++ % nextConcepts.length]);
       }),
     },
     {

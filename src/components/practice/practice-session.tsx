@@ -29,12 +29,15 @@ interface PracticeSessionProps {
   conceptId: string;
   /** Tests pass a client with mocks or a failing network. */
   client?: ApiClient;
+  /** Practice weakest (T26): "Next" moves to the next concept instead of another question. */
+  onNext?: () => void;
 }
 
 export function PracticeSession({
   courseId,
   conceptId,
   client = api,
+  onNext,
 }: PracticeSessionProps) {
   const validId = ID_PATTERN.test(conceptId);
   // A bad id never reaches the server: it reads as "not found" straight away.
@@ -146,7 +149,11 @@ export function PracticeSession({
         <>
           <FeedbackDisplay result={result} />
           <div className="flex flex-wrap gap-4">
-            <Button onClick={newQuestion}>Next question</Button>
+            {onNext ? (
+              <Button onClick={onNext}>Next concept</Button>
+            ) : (
+              <Button onClick={newQuestion}>Next question</Button>
+            )}
             <Link href={pickerHref} className="self-center text-sm underline">
               Choose another concept
             </Link>

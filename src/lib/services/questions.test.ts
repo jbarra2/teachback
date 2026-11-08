@@ -29,7 +29,8 @@ vi.mock("@/lib/db", () => ({
 const generateQuestion = vi.fn();
 vi.mock("@/lib/ai/generate-question", () => ({ generateQuestion }));
 
-const { createQuestion, QUESTION_DEADLINE_MS } = await import("./questions");
+const { createQuestion, inNoteOrder, QUESTION_DEADLINE_MS } =
+  await import("./questions");
 
 afterEach(() => {
   vi.useRealTimers();
@@ -56,5 +57,31 @@ describe("createQuestion's AI deadline", () => {
   it("allows one 60 s attempt and a quick retry, not two full timeouts", () => {
     expect(QUESTION_DEADLINE_MS).toBeGreaterThan(60_000);
     expect(QUESTION_DEADLINE_MS).toBeLessThan(120_000);
+  });
+});
+
+describe("inNoteOrder", () => {
+  const chunk = (id: string, order: number, day: number) => ({
+    id,
+    order,
+    text: id,
+    refLabel: id,
+    document: { createdAt: new Date(Date.UTC(2026, 10, day)) },
+  });
+
+  it("puts the oldest document first, then each document's order, then the id", () => {
+    const sorted = inNoteOrder([
+      chunk("cb", 0, 2),
+      chunk("cz", 1, 1),
+      chunk("cy", 0, 1),
+      chunk("cx", 0, 1),
+    ]);
+    expect(sorted.map((c) => c.id)).toEqual(["cx", "cy", "cz", "cb"]);
+  });
+
+  it("doesn't reorder the array it was given", () => {
+    const given = [chunk("c2", 1, 1), chunk("c1", 0, 1)];
+    inNoteOrder(given);
+    expect(given.map((c) => c.id)).toEqual(["c2", "c1"]);
   });
 });

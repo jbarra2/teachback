@@ -119,3 +119,80 @@ Fixing tests for a platform I couldn't run. The issue didn't include Jonathan's 
 
 **What I learned:**
 Windows doesn't report POSIX termination signals the way Linux and macOS do: a process killed or aborted there shows up as an exit code with no signal, so tests that assert a signal only work on Linux and macOS. Paths differ too: `path.join` gives backslashes on Windows, so comparing against the same `path.join` call is more reliable than matching a hard-coded suffix. And when I can't test on a platform, it's better to have the test record what happens there than to assert behavior I've only read about.
+
+## T08 · Seed script (#8) · Nov 6, 2026
+
+**What I built:** `npm run db:seed` in `prisma/seed.ts`, which loads demo data for development and the cross-user checks. It creates two demo accounts through Better Auth's server API, so passwords are hashed exactly as in sign-up. Demo user A gets a course with a READY document of fictional sorting-algorithm notes, split by the real T11 chunker into 10 chunks, plus 5 concepts linked to those chunks, 4 prerequisite edges and 2 questions. Demo user B gets a small course of their own. The seed is safe to re-run, refuses to run when `NODE_ENV=production`, and the accounts are listed in a new "Demo accounts" section of the README. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results. I ran the seed myself, including a re-run, and confirmed that it refuses to run in production. I signed in to both demo accounts and checked that demo user B gets a 404 for demo user A's course, in both the UI and the API.
+
+**Skills & tools:** Prisma 7 (interactive transactions, `createManyAndReturn`), PostgreSQL advisory locks, Better Auth server API and password verification, tsx, Vitest integration tests, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T08, which I extended before any code was written: re-runs had to keep demo progress, a failed or half-finished seed had to be safe to retry, and an existing account with a demo email could never have its password reset or be reported as working unless its sign-in was verified. I waited for Jonathan to approve the test file in his folder before building. After testing, I had Claude confirm the seed would hit my local dev database, and investigate a failed sign-in as a possible bug using read-only checks. Finally, I had it merge T12 and switch to T12's shared concept-name helper.
+
+**Decided / dropped:**
+
+- A user who already has the demo course is skipped, not reset, so attempts and mastery survive a re-run. The seed never deletes anything.
+- An existing account is used only if the demo password verifies against its stored hash, using Better Auth's own verifier, which creates no session. Any other account is left untouched and reported as a conflict, and the run exits with an error.
+- Each user's course is written in one transaction, behind a per-user Postgres advisory lock, so a failure rolls back completely and two runs at once can't duplicate a course.
+- I wrote new fictional notes instead of reusing an existing test fixture, because that fixture names a real course code and the repo is public.
+- `/test-task` found that every failure told you to delete the account. A database error got that advice too, so account conflicts now have their own status, and only they suggest deleting.
+- The tests live in `tests/integration/seed.int.test.ts`, a one-file exception Jonathan approved, rather than a change to the Vitest config.
+- After merging T12, the seed uses T12's `conceptNameKey`, so notes uploaded to a demo course later merge with the seeded concepts. I dropped the seed's own key function.
+
+**Hardest part, and how I solved it:**
+Making the seed safe to re-run and retry without touching anything it doesn't own. With auto sign-in off, Better Auth answers a taken email with a stand-in user instead of an error, so the seed reads the account back and checks the stored hash before writing any data. Each user's data goes in one transaction, so the tests could break things on purpose: a run that died after sign-up, a duplicate concept that fails mid-transaction and rolls back, and an account with someone else's password, whose stored hash is unchanged afterwards. In each case a later run either completes the data or leaves the account alone.
+
+**What I learned:**
+To make a script idempotent, the "does it exist?" check has to happen inside the transaction, under a lock, not before it. Otherwise two runs can both decide to create the same data. Verifying a password with the auth library's own verifier is a safe way to confirm credentials without signing in or changing anything. And when a library logs an error, reading where in its source that log is written can rule out whole causes: Better Auth only logs "Invalid password" after it has already found the user, which ruled out a database mismatch right away.
+
+## T22 · Answer evaluation endpoint (#22) · Nov 6, 2026
+
+**What I built:** `POST /api/questions/{id}/answer`, which grades a student's answer to one of their own questions against that concept's notes using the smart model, keeps only evidence quotes that really appear in the notes, and saves the Attempt. The route (`src/app/api/questions/[id]/answer/route.ts`) calls `answerQuestion` in `src/lib/services/answer.ts`, which uses the new `evaluateAnswer` prompt and schema in `src/lib/ai/evaluate-answer.ts`.
+
+**Skills & tools:** Next.js route handlers, Prisma transactions, zod v4, Claude API structured output, prompt-injection defenses, Vitest unit and integration tests
+
+**Asked Claude for:** I had Claude plan and implement the T22 answer-evaluation endpoint, including the security and integration tests. Before implementation, I asked it to address an edge case involving escaped characters in evidence quotes and structure the database transaction so T24 could build on it later. After implementation, I reviewed the testing results and manually tested answer evaluation, prompt injection, validation, cross-user access, fabricated evidence and AI failures. When VS Code unexpectedly restarted during testing, I had Claude confirm that all my work was preserved before continuing with the security review.
+
+**Decided / dropped:**
+
+- The model only sees short source keys (`s1`, `s2`, ...) that the server maps back to chunk IDs. It never sees or picks a database ID, so a quote can't be pointed at someone else's chunk.
+- Quotes are checked only against the chunks actually sent after the prompt budget trimmed them, so a quote from a chunk that was cut off fails verification.
+- The AI call runs under one 90-second deadline and outside the database transaction. An AI failure returns 502 `AI_UNAVAILABLE` and saves no Attempt.
+- Reused T17's chunk select, note ordering, budget and control-character helpers (`NOTE_CHUNK_SELECT`, `inNoteOrder`, `withinBudget`, `withoutControls`) instead of copying them.
+- Mastery is read but not updated here. The row-locked update is left to T24.
+
+**Manual testing (checked by me in the running app):**
+
+- Normal answer: 200, PARTIAL verdict, two evidence citations with chunk IDs and reference labels, mastery unchanged.
+- Prompt-injection answer: 200, verdict stayed PARTIAL (fake provider).
+- A 4,001-character answer: 400 `VALIDATION_ERROR` naming the `answer` field.
+- Demo User B answering Demo User A's question: 404.
+- Fabricated evidence: 200, fabricated quotes removed, `unsupported` true, confidence LOW.
+- AI timeout: 502 `AI_UNAVAILABLE` with the friendly message and no internal details.
+
+The automated integration tests (not my manual checks) assert that an AI failure saves no Attempt.
+
+**Hardest part, and how I solved it:**
+The notes go to the model HTML-escaped to protect the prompt, so a true quote could come back as "&amp;" instead of "&" and fail the word-for-word check against the notes. I added a single-pass `unescapeText` and a `quoteAsInNotes` step that only chooses which spelling of the quote to check, so the substring check itself never gets looser. I also manually tested the fabricated-evidence failure mode and confirmed that unsupported quotes were removed and confidence dropped to LOW.
+
+**What I learned:**
+Model output has to be treated as untrusted even when it's structured: zod validates its shape, but every citation still has to be checked against text the server controls. I also learned to keep slow AI calls out of database transactions and put them under one overall deadline, so a timeout fails cleanly with a fixed message and leaves no partial data behind.
+
+## T41 · Cover the last two branches in the AI wrapper (fake.ts, provider.ts) (#56) · Nov 7, 2026
+
+**What I built:** Two unit tests that cover the last untested branches in the AI wrapper, bringing every file in `src/lib/ai/` to 100% branch coverage. In `fake.test.ts`, a prompt with only a whitespace chunk checks that the fake provider's `firstWords` falls back to the text itself and still returns schema-valid questions and concepts. In `provider.test.ts`, a transport that throws an `AiError` checks that `toAiError` passes the same object through without retrying. No production code changed.
+
+**Skills & tools:** Vitest (mocks, identity vs. equality assertions), V8 branch coverage, zod, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T41 with no production code changes, then the two tests with exact expected values for the fallback case and an identity check plus a single-call check for the `AiError` case. I also asked for confirmation from `npm run test:ci` that `src/lib/ai/` reached 100% branches, while keeping my other branches and stashes untouched.
+
+**Decided / dropped:**
+
+- The fallback test uses `generateQuestion` and `extractConcepts` to exercise the actual fake-provider behavior. I checked the exact returned values and schema validation rather than relying on coverage numbers alone.
+- The pass-through test uses `toBe(thrown)` instead of `toMatchObject({ code })`. The existing error-mapping tests only compare fields, which can't tell a passed-through error from a new one with the same code.
+- Left the branch gaps in `services/` and `mastery/` alone. They came from tasks merged after this issue was written, and most of `services/` is in the lead's track, so they're listed as follow-ups in the PR.
+
+**Hardest part, and how I solved it:**
+Making the fallback branch reachable through the public API. `firstWords` only returns the raw text when its regex finds no word, and `readChunks` trims each chunk, so a chunk of spaces and tabs becomes an empty string that takes exactly that path. Separately, `npm run verify` first failed type-checking and the build because of generated route types left over from my T22 branch, which pointed at an endpoint not on `main` yet. Deleting the git-ignored `.next/dev/types` folder fixed it without touching any tracked file.
+
+**What I learned:**
+Line coverage can be 100% while a branch is still untested: a ternary runs on every call, but only one side may ever be taken. An equality assertion also can't prove an object was passed through unchanged; you need an identity check like `toBe`. And our coverage report hides fully covered files, so a folder missing from the table means it's at 100%. I confirmed the per-file numbers in `coverage-summary.json` rather than assuming.

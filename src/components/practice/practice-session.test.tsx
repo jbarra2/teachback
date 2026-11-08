@@ -101,6 +101,25 @@ describe("PracticeSession", () => {
     expect(container.querySelector("img, script")).toBeNull();
   });
 
+  it("hands Next to onNext as Next concept when practising weakest", async () => {
+    const onNext = vi.fn();
+    render(
+      <PracticeSession
+        courseId={COURSE_ID}
+        conceptId={CONCEPT_IDS.osmosis}
+        client={client()}
+        onNext={onNext}
+      />,
+    );
+    await answer("Water moves toward more solute.");
+    await screen.findByRole("region", { name: "Feedback" });
+    expect(
+      screen.queryByRole("button", { name: "Next question" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next concept" }));
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
   it("sends the answer once, even when submitted twice quickly", async () => {
     const network = vi.fn<Network>(async () =>
       Response.json(
