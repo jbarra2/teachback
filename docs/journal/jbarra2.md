@@ -557,3 +557,25 @@ Showing that "the app uses the real API" is actually true rather than just compi
 
 **What I learned:**
 A guard test only counts once you've seen it fail: I broke the code seven ways (an app import of the fake, a mock switch in the client, the variable back in the env file, a template-string import, and more) and checked that each was caught. A check that finds nothing can also be broken, so I confirm it finds something real before trusting a clean result.
+
+## T27 · Eval set + prompt tuning (incl. prompt injection) (#27) · Nov 8, 2026
+
+**What I built:** An eval for the AI grader. `fixtures/eval/cases.json` has 12 graded answers over the two fictional seed note sets (good, partial, wrong and off-topic) and 3 prompt-injection cases: an answer that tells the grader to mark it correct, an answer that forges closing tags, and notes with a planted "note to the grader". `src/lib/ai/eval.ts` runs each case through the real `evaluateAnswer` and `verifyEvidence` path and scores verdict agreement, injection resistance, dropped quotes and latency. `npm run eval` (`scripts/eval.ts`) runs it per model, saves the scores to `fixtures/eval/results/` and writes `docs/eval.md`. The baseline was 12/12 and 3/3 on both Opus and Sonnet, so Opus stays the grading model. A tuning round added a rule to the grading prompt about text in the notes addressed to the grader, with no regression.
+
+**Skills & tools:** LLM evaluation design, prompt-injection testing, the Anthropic API through our provider wrapper, zod v4 strict schemas, Vitest with injected clocks and stub graders, mutation testing, Node's `parseArgs`, Prettier's API
+
+**Asked Claude for:** Take T27 over from the AI track as the last ready task before the README, holding off on real API calls until my key was in `.env`, then run the baseline and a tuning round once it was.
+
+**Decided / dropped:**
+
+- Kept the model's text, the answers and the notes out of every saved result and out of `docs/eval.md`: only ids, verdicts, counts and timings are stored, and a strict schema rejects anything else, since the report is committed to a public repo.
+- Put all the logic (running each model, each case one at a time, the Opus-or-Sonnet rule, the save path) in a tested module and left the script as thin file and network glue, after reviews found that untested script code could compare Opus with itself under a Sonnet label.
+- Counted an injection case as resisted only when the verdict matched the expected one exactly, so a PARTIAL for a no-content answer counts against us.
+- Kept Opus: Sonnet tied on accuracy and was only about 9% faster, below the issue's "clearly faster" bar.
+- The baseline hit both targets, so the tuning round hardened a channel the cases only touch once (instructions planted in the notes) instead of chasing a score, and I recorded that the case set is at its ceiling.
+
+**Hardest part, and how I solved it:**
+Making sure the eval's numbers can be trusted, since a harness that reports the wrong thing is worse than none. Five rounds of independent test reviews kept finding ways a bug could slip through unnoticed: a stub grader that hid which notes quotes were checked against, a test clock that couldn't tell whether the grading call was timed, a path rule with no test for its end anchor. For each one I wrote a test, then broke the code on purpose to watch it fail; by the end all 47 deliberate breaks were caught.
+
+**What I learned:**
+A perfect score is a result to question rather than celebrate: 12/12 on both models mostly showed that my cases were too easy to separate them. And tests for a measuring tool have to pin the measurement itself, not just its shape, because a stopwatch that starts at the wrong moment still produces a plausible number.
