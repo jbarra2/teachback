@@ -120,6 +120,30 @@ Fixing tests for a platform I couldn't run. The issue didn't include Jonathan's 
 **What I learned:**
 Windows doesn't report POSIX termination signals the way Linux and macOS do: a process killed or aborted there shows up as an exit code with no signal, so tests that assert a signal only work on Linux and macOS. Paths differ too: `path.join` gives backslashes on Windows, so comparing against the same `path.join` call is more reliable than matching a hard-coded suffix. And when I can't test on a platform, it's better to have the test record what happens there than to assert behavior I've only read about.
 
+## T08 · Seed script (#8) · Nov 6, 2026
+
+**What I built:** `npm run db:seed` in `prisma/seed.ts`, which loads demo data for development and the cross-user checks. It creates two demo accounts through Better Auth's server API, so passwords are hashed exactly as in sign-up. Demo user A gets a course with a READY document of fictional sorting-algorithm notes, split by the real T11 chunker into 10 chunks, plus 5 concepts linked to those chunks, 4 prerequisite edges and 2 questions. Demo user B gets a small course of their own. The seed is safe to re-run, refuses to run when `NODE_ENV=production`, and the accounts are listed in a new "Demo accounts" section of the README. Claude Code handled the implementation, and I reviewed the plan, made the decisions and tested the results. I ran the seed myself, including a re-run, and confirmed that it refuses to run in production. I signed in to both demo accounts and checked that demo user B gets a 404 for demo user A's course, in both the UI and the API.
+
+**Skills & tools:** Prisma 7 (interactive transactions, `createManyAndReturn`), PostgreSQL advisory locks, Better Auth server API and password verification, tsx, Vitest integration tests, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T08, which I extended before any code was written: re-runs had to keep demo progress, a failed or half-finished seed had to be safe to retry, and an existing account with a demo email could never have its password reset or be reported as working unless its sign-in was verified. I waited for Jonathan to approve the test file in his folder before building. After testing, I had Claude confirm the seed would hit my local dev database, and investigate a failed sign-in as a possible bug using read-only checks. Finally, I had it merge T12 and switch to T12's shared concept-name helper.
+
+**Decided / dropped:**
+
+- A user who already has the demo course is skipped, not reset, so attempts and mastery survive a re-run. The seed never deletes anything.
+- An existing account is used only if the demo password verifies against its stored hash, using Better Auth's own verifier, which creates no session. Any other account is left untouched and reported as a conflict, and the run exits with an error.
+- Each user's course is written in one transaction, behind a per-user Postgres advisory lock, so a failure rolls back completely and two runs at once can't duplicate a course.
+- I wrote new fictional notes instead of reusing an existing test fixture, because that fixture names a real course code and the repo is public.
+- `/test-task` found that every failure told you to delete the account. A database error got that advice too, so account conflicts now have their own status, and only they suggest deleting.
+- The tests live in `tests/integration/seed.int.test.ts`, a one-file exception Jonathan approved, rather than a change to the Vitest config.
+- After merging T12, the seed uses T12's `conceptNameKey`, so notes uploaded to a demo course later merge with the seeded concepts. I dropped the seed's own key function.
+
+**Hardest part, and how I solved it:**
+Making the seed safe to re-run and retry without touching anything it doesn't own. With auto sign-in off, Better Auth answers a taken email with a stand-in user instead of an error, so the seed reads the account back and checks the stored hash before writing any data. Each user's data goes in one transaction, so the tests could break things on purpose: a run that died after sign-up, a duplicate concept that fails mid-transaction and rolls back, and an account with someone else's password, whose stored hash is unchanged afterwards. In each case a later run either completes the data or leaves the account alone.
+
+**What I learned:**
+To make a script idempotent, the "does it exist?" check has to happen inside the transaction, under a lock, not before it. Otherwise two runs can both decide to create the same data. Verifying a password with the auth library's own verifier is a safe way to confirm credentials without signing in or changing anything. And when a library logs an error, reading where in its source that log is written can rule out whole causes: Better Auth only logs "Invalid password" after it has already found the user, which ruled out a database mismatch right away.
+
 ## T22 · Answer evaluation endpoint (#22) · Nov 6, 2026
 
 **What I built:** `POST /api/questions/{id}/answer`, which grades a student's answer to one of their own questions against that concept's notes using the smart model, keeps only evidence quotes that really appear in the notes, and saves the Attempt. The route (`src/app/api/questions/[id]/answer/route.ts`) calls `answerQuestion` in `src/lib/services/answer.ts`, which uses the new `evaluateAnswer` prompt and schema in `src/lib/ai/evaluate-answer.ts`.
