@@ -32,7 +32,7 @@ export interface GeneratedQuestion {
 }
 
 /** Control characters (PostgreSQL refuses NUL) become spaces in anything the model wrote. */
-const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");
+export const withoutControls = (text: string) => text.replace(/\p{Cc}/gu, " ");
 
 /** The model's output, refused unless it cites at least one chunk it was given. */
 export function questionSchema(known: Set<string>) {
@@ -63,7 +63,7 @@ Rules for the question:
 Return the question text, its kind, and sourceChunkIds: the ids of the chunks the answer is in, copied exactly from the <chunk> tags.`;
 
 /** The sources that fit the budget, whole chunks in order; a first chunk that's too long is cut. */
-function withinBudget(sources: QuestionSource[]): QuestionSource[] {
+export function withinBudget(sources: QuestionSource[]): QuestionSource[] {
   const kept: QuestionSource[] = [];
   let size = 0;
   for (const source of sources) {
