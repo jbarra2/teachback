@@ -196,3 +196,25 @@ Making the fallback branch reachable through the public API. `firstWords` only r
 
 **What I learned:**
 Line coverage can be 100% while a branch is still untested: a ternary runs on every call, but only one side may ever be taken. An equality assertion also can't prove an object was passed through unchanged; you need an identity check like `toBe`. And our coverage report hides fully covered files, so a folder missing from the table means it's at 100%. I confirmed the per-file numbers in `coverage-summary.json` rather than assuming.
+
+## T29 · E2E tests: happy path + security (Playwright) (#29) · Nov 8, 2026
+
+**What I built:** Playwright end-to-end tests that run the real app against the isolated test database and check the happy path and the main security cases. `playwright.config.ts` starts `next dev` on its own port with the `.env.test` values. Global setup checks that the database is the local `_test` one, migrates and resets it, warms the routes used by the tests, and saves two signed-in users. Five spec files cover sign up → course → upload → practice → feedback → map, signed-out redirects, sign-out ending the session (pages and API), user B getting not-found on user A's course, practice and map, XSS payloads rendering as text, and CSP and security headers. I also added the `test:e2e` script and, with the lead's approval, pinned it in the tooling test.
+
+**Skills & tools:** Playwright (webServer, global setup, storageState, traces), Next.js 16 dev server, Better Auth, Prisma, tsx, Content Security Policy, GitHub CLI, Claude Code
+
+**Asked Claude for:** A plan for T29 that kept the existing security checks unchanged and used only the test database. The plan switched from a production build to `next dev` after the lead's decision on the issue. Later I asked Claude to find the root cause of two flaky test failures before changing anything, with no retries, no weaker assertions and no production code changes, and to keep the logs and traces before rerunning.
+
+**Decided / dropped:**
+
+- Ran the app with `next dev` instead of a production build. In production mode the auth guard refuses the test secret and an http URL, and that guard is working as intended, so the lead chose to leave it alone rather than add an exception or an https proxy for tests.
+- Depended on the `playwright` package instead of `@playwright/test`. Both declare the same `playwright` command, which our lockfile guard rejects, and `@playwright/test` only re-exports `playwright/test`.
+- Ran the database steps in a separate script under tsx. Playwright loads TypeScript as CommonJS, and the shared test helpers are ES modules, so this reuses the lead's `_test` guard and reset helper unchanged and keeps Prisma out of the test runner.
+- Gave each test client its own IP header, so Better Auth's sign-in limit stays on but test users don't share a bucket.
+- Dropped test retries for the flaky failures. Without a known root cause, a retry could hide a real problem. I turned on the dev server's log output instead, so the next failure shows its cause.
+
+**Hardest part, and how I solved it:**
+Making the tests trustworthy under `next dev`. One run failed because the cross-user page kept reloading itself, 52 times in 15 seconds. The trace showed the server correctly answered 404 every time, so it wasn't an authorization bug, but I couldn't reproduce the loop and its cause is still open. A later run failed because the answer route was being compiled for the first time while the test waited for feedback. Warming the three POST-only routes in global setup fixed that, since a GET gets a 405 before any app code runs but still compiles the route.
+
+**What I learned:**
+A failing security test isn't always a security bug: the trace's network log showed the 404s were right and the page simply never finished loading. I also learned to keep the logs and traces before rerunning anything, because clearing caches and rerunning can wipe the evidence of a flaky failure. And under `next dev` every route compiles on first use, so an e2e setup has to warm every route the tests will call, not just the pages.
