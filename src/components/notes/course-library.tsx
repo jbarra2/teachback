@@ -5,8 +5,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
+  cn,
   EmptyState,
   ErrorState,
+  focusRing,
   Input,
   Spinner,
 } from "@/components/ui";
@@ -87,7 +89,10 @@ export function CourseLibrary({ client = api }: CourseLibraryProps) {
             <li key={course.id}>
               <Link
                 href={`/courses/${encodeURIComponent(course.id)}`}
-                className="block rounded-lg border border-border p-4 font-medium hover:bg-surface"
+                className={cn(
+                  "block rounded-lg border border-border p-4 font-medium hover:bg-surface",
+                  focusRing,
+                )}
               >
                 {course.name}
               </Link>

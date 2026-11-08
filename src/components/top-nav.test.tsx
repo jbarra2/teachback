@@ -23,4 +23,11 @@ describe("TopNav", () => {
     );
     expect(screen.getByText("session links")).toBeInTheDocument();
   });
+
+  it("wraps onto a second line instead of overflowing a 375 px screen", () => {
+    render(<TopNav />);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(nav).toHaveClass("flex-wrap");
+    expect(screen.getByRole("list")).toHaveClass("flex-wrap");
+  });
 });

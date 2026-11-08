@@ -168,7 +168,9 @@ describe("ConceptMap", () => {
     expect(
       within(mapRegion()).getByRole("link", { name: /^Concept 99/ }),
     ).toBeInTheDocument();
-  });
+    // Lays out and renders 100 nodes: about 3 s alone, over 6 s in a busy `npm run verify` (#73).
+    // Room for a loaded machine, like T42's heavy tests; every other test keeps the 5 s default.
+  }, 60_000);
 
   it("renders an HTML-looking concept name as text", async () => {
     const name = '<img src=x onerror="alert(1)">';

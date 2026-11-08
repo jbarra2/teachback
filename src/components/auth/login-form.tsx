@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, textLink } from "@/components/ui";
 import { safeNextPath } from "@/lib/schemas";
 import { logIn } from "./auth-actions";
 import { useAuthForm } from "./use-auth-form";
@@ -68,7 +68,7 @@ export function LoginForm({ next, onSubmit = logIn }: LoginFormProps) {
       </Button>
       <p className="text-sm text-muted">
         New here?{" "}
-        <Link href="/signup" className="text-primary underline">
+        <Link href="/signup" className={textLink}>
           Create an account
         </Link>
       </p>

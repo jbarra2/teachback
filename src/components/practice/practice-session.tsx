@@ -2,7 +2,13 @@
 // One concept's practice loop (T16): question → answer → feedback → next question.
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Button, EmptyState, ErrorState, Spinner } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Spinner,
+  textLink,
+} from "@/components/ui";
 import {
   ApiError,
   api,
@@ -115,7 +121,7 @@ export function PracticeSession({
         title="Concept not found"
         description="This concept doesn't exist or isn't in this course."
         action={
-          <Link href={pickerHref} className="text-primary underline">
+          <Link href={pickerHref} className={textLink}>
             Choose a concept
           </Link>
         }

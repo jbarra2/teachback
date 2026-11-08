@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MasteryBadge } from "@/components/ui";
+import { MasteryBadge, textLink, cn } from "@/components/ui";
 import type { CourseConcept } from "@/lib/api-client";
 
 /** The concepts found in a course's notes, each linking to practice for it. */
@@ -26,7 +26,7 @@ export function ConceptList({
           <div className="flex items-center justify-between gap-3">
             <Link
               href={`/courses/${encodeURIComponent(courseId)}/practice?concept=${encodeURIComponent(concept.id)}`}
-              className="font-medium text-primary underline"
+              className={cn("font-medium", textLink)}
             >
               {concept.name}
             </Link>

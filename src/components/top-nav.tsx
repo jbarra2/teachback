@@ -7,7 +7,7 @@ export function TopNav() {
     <header className="border-b border-border">
       <nav
         aria-label="Main"
-        className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3"
+        className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-3"
       >
         <Link
           href="/"
@@ -15,7 +15,7 @@ export function TopNav() {
         >
           TeachBack
         </Link>
-        <ul className="flex items-center gap-1">
+        <ul className="flex flex-wrap items-center gap-1">
           <li>
             <Link href="/courses" className={navLink}>
               Courses

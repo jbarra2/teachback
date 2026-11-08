@@ -14,7 +14,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const controlClass =
-  "rounded-md border border-border bg-background px-3 py-2 text-sm aria-[invalid=true]:border-danger";
+  "rounded-md border border-control-border bg-background px-3 py-2 text-sm aria-[invalid=true]:border-danger";
 
 export function Input({
   id,

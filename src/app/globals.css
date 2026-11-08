@@ -6,6 +6,8 @@
   --muted: #5c5c66;
   --surface: #f6f6f8;
   --border: #d9d9e0;
+  /* Outlines of form controls: 3:1 against background and surface (WCAG 1.4.11). */
+  --control-border: #858590;
   --primary: #3b4fd8;
   --primary-foreground: #ffffff;
   --danger: #b42318;
@@ -20,6 +22,7 @@
   --color-muted: var(--muted);
   --color-surface: var(--surface);
   --color-border: var(--border);
+  --color-control-border: var(--control-border);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-danger: var(--danger);
@@ -37,6 +40,7 @@
     --muted: #a1a1aa;
     --surface: #17171a;
     --border: #2e2e33;
+    --control-border: #71717a;
     --primary: #8b9bff;
     --primary-foreground: #0a0a0a;
     --danger: #ff8a80;
@@ -50,4 +54,6 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* A long unbroken name or title wraps instead of pushing the page wider than a phone (375 px). */
+  overflow-wrap: anywhere;
 }

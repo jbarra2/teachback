@@ -123,7 +123,7 @@ function DocumentRow({
     <li className="flex flex-col gap-1 rounded-lg border border-border p-3">
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium">{document.title}</span>
-        <span className="flex items-center gap-2">
+        <span className="flex shrink-0 items-center gap-2">
           {!done && !gone && <Spinner label={`${label}…`} />}
           <Badge tone={tone}>{label}</Badge>
         </span>

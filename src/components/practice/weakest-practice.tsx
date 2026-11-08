@@ -2,7 +2,13 @@
 // Practice weakest (T26): next-concept → question → feedback → next-concept, until the user stops.
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { EmptyState, ErrorState, MasteryBadge, Spinner } from "@/components/ui";
+import {
+  EmptyState,
+  ErrorState,
+  MasteryBadge,
+  Spinner,
+  textLink,
+} from "@/components/ui";
 import {
   ApiError,
   api,
@@ -88,7 +94,7 @@ export function WeakestPractice({
         title="Course not found"
         description="This course doesn't exist or isn't yours."
         action={
-          <Link href="/courses" className="text-primary underline">
+          <Link href="/courses" className={textLink}>
             Back to your courses
           </Link>
         }
@@ -101,7 +107,7 @@ export function WeakestPractice({
         title="Nothing to practise yet"
         description="Upload notes to this course first. Once they're processed, we'll pick what to practise."
         action={
-          <Link href={courseHref} className="text-primary underline">
+          <Link href={courseHref} className={textLink}>
             Go to the course
           </Link>
         }

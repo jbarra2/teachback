@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { textLink } from "@/components/ui";
 import { CourseNotes } from "@/components/notes/course-notes";
 import { PracticeWeakestLink } from "@/components/practice/practice-weakest-link";
 
@@ -15,13 +16,13 @@ export default async function CoursePage({
       <nav aria-label="Course" className="flex gap-4 text-sm">
         <Link
           href={`/courses/${encodeURIComponent(courseId)}/practice`}
-          className="text-primary underline"
+          className={textLink}
         >
           Practice
         </Link>
         <Link
           href={`/courses/${encodeURIComponent(courseId)}/map`}
-          className="text-primary underline"
+          className={textLink}
         >
           Concept map
         </Link>
