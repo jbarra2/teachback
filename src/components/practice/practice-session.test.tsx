@@ -92,6 +92,15 @@ describe("PracticeSession", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps an XSS payload in the answer as literal text alongside the feedback", async () => {
+    const payload = `<img src=x onerror="alert(1)"><script>alert(2)</script>`;
+    const { container } = renderSession();
+    await answer(payload);
+    await screen.findByRole("region", { name: "Feedback" });
+    expect(box()).toHaveValue(payload);
+    expect(container.querySelector("img, script")).toBeNull();
+  });
+
   it("hands Next to onNext as Next concept when practising weakest", async () => {
     const onNext = vi.fn();
     render(

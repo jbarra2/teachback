@@ -108,3 +108,27 @@ Moving to the next concept had to fully reset the practice session, including wh
 
 **What I learned:**
 Changing a component's `key` is the simplest way to reset all of its state. I also guard "next" against double clicks by ignoring a click while a request is loading, and cancel the fetch on unmount with an `AbortController` so a late response can't update a page that's gone.
+
+## T23 · Feedback display UI (#23) · Nov 7, 2026
+
+<!-- needs-review -->
+
+**What I built:** The full feedback view a student sees after answering a question, in `src/components/practice/feedback-display.tsx`. It shows the verdict, a confidence badge, the mastery chip, what they got right and what's missing, and the quotes from their notes with each one's source label. It adds a "Couldn't verify this against your notes" banner when the evidence check failed or confidence is LOW, and a "Goes beyond your notes" note when the answer used material the notes don't cover. It replaces T16's short feedback summary. A new test also scans every file under `src/` for raw-HTML rendering.
+
+**Skills & tools:** React, TypeScript, Tailwind CSS, Vitest, Testing Library, accessible markup (`role="note"`, labelled lists, `figure`/`blockquote`), Next.js type generation, git branching and merging, the GitHub CLI
+
+**Asked Claude for:** To find my next task, which turned out to be T23, then to start, test, security-review and ship it. Since the work already existed on an unpushed local branch, I had Claude verify and ship that branch instead of rebuilding it, and I asked for a fresh journal entry.
+
+**Decided / dropped:**
+
+- Put the banner rules in a small pure function (`feedbackNotices`) so every combination of `unsupported`, confidence and `outsideNotes` is tested as a table.
+- Made the confidence badge say the level in words ("Confidence: Low") so it doesn't rely on color alone.
+- Tested "the answer renders literally" through the practice session, where the answer is already shown, instead of adding a second "Your answer" block to the feedback card.
+- Added a test that scans `src/` for `dangerouslySetInnerHTML` as a backstop for the lint rule, building the forbidden string from two parts so the test doesn't flag itself.
+- Kept my original branch with the work and dropped the empty duplicate branch that `gh issue develop` had created.
+
+**Hardest part, and how I solved it:**
+After merging `main` into the branch, the typecheck failed with errors about a missing `practice/weakest/page.js`, a page my branch never touched. The error pointed into `.next/dev/types`, which the dev server had generated while I was on my T26 branch, where that page exists. Deleting that generated folder (it's gitignored and rebuilt automatically) fixed it without changing any code, and the full `npm run verify` then passed.
+
+**What I learned:**
+When a type error points at a file my branch doesn't have, I check whether it comes from generated output left over from another branch before touching code. I also learned that `gh issue develop` makes a new branch even when one already exists for the issue, so I look for existing branches first.

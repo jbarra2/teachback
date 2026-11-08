@@ -15,7 +15,7 @@ import {
 import { ID_PATTERN } from "@/lib/schemas";
 import { AnswerForm } from "./answer-form";
 import { errorMessage } from "./error-message";
-import { FeedbackSummary } from "./feedback-summary";
+import { FeedbackDisplay } from "./feedback-display";
 import { QuestionCard } from "./question-card";
 
 type QuestionState =
@@ -147,7 +147,7 @@ export function PracticeSession({
       )}
       {result && (
         <>
-          <FeedbackSummary result={result} />
+          <FeedbackDisplay result={result} />
           <div className="flex flex-wrap gap-4">
             {onNext ? (
               <Button onClick={onNext}>Next concept</Button>
