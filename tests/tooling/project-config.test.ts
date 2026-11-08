@@ -75,6 +75,7 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
       "start",
       "test",
       "test:ci",
+      "test:e2e",
       "test:int",
       "typecheck",
       "verify",
@@ -88,6 +89,11 @@ describe("npm scripts (pre-push runs check; CI and verify run the rest)", () => 
 
   it("audit fails on high and critical production advisories", () => {
     expect(scripts.audit).toBe("npm audit --omit=dev --audit-level=high");
+  });
+
+  // CI's e2e job and verify run this (T29); playwright.config.ts decides what it starts and where.
+  it("test:e2e runs Playwright with the repo's config", () => {
+    expect(scripts["test:e2e"]).toBe("playwright test");
   });
 
   // CI and verify run these (--if-present in ci.yml; the list above keeps them present).
