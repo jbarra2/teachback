@@ -3,7 +3,7 @@
 // found so far. Concepts load once a document is READY, and again each time another one is.
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { EmptyState, ErrorState, Spinner } from "@/components/ui";
+import { EmptyState, ErrorState, Spinner, textLink } from "@/components/ui";
 import {
   ApiError,
   api,
@@ -116,7 +116,7 @@ export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
         title="Course not found"
         description="It may have been removed, or the link is wrong."
         action={
-          <Link href="/courses" className="text-primary underline">
+          <Link href="/courses" className={textLink}>
             Back to your courses
           </Link>
         }

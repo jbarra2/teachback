@@ -19,6 +19,7 @@ import {
   focusRing,
   MasteryBadge,
   Spinner,
+  textLink,
 } from "@/components/ui";
 import {
   ApiError,
@@ -101,7 +102,7 @@ export function ConceptMap({ courseId, client = api }: ConceptMapProps) {
         title="No concepts yet"
         description="Upload notes for this course. Their concepts will show up here as a map."
         action={
-          <Link href={courseHref} className="text-primary underline">
+          <Link href={courseHref} className={textLink}>
             Go to the course
           </Link>
         }
@@ -161,10 +162,7 @@ export function ConceptMap({ courseId, client = api }: ConceptMapProps) {
         <ul className="flex flex-col gap-2">
           {state.map.nodes.map((node) => (
             <li key={node.id} className="flex items-center gap-3">
-              <Link
-                href={practiceHref(courseId, node.id)}
-                className="text-primary underline"
-              >
+              <Link href={practiceHref(courseId, node.id)} className={textLink}>
                 {node.name}
               </Link>
               <MasteryBadge state={node.state} />

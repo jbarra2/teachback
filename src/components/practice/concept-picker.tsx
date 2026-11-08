@@ -8,6 +8,8 @@ import {
   ErrorState,
   MasteryBadge,
   Spinner,
+  textLink,
+  cn,
 } from "@/components/ui";
 import {
   api,
@@ -74,7 +76,7 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
         title="No concepts yet"
         description="Upload notes for this course first. Their concepts will show up here to practice."
         action={
-          <Link href={courseHref} className="text-primary underline">
+          <Link href={courseHref} className={textLink}>
             Go to the course
           </Link>
         }
@@ -91,7 +93,7 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
               <div className="flex flex-col gap-1">
                 <Link
                   href={`${courseHref}/practice?concept=${encodeURIComponent(concept.id)}`}
-                  className="font-medium text-primary underline"
+                  className={cn("font-medium", textLink)}
                 >
                   {concept.name}
                 </Link>

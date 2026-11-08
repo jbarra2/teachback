@@ -132,3 +132,27 @@ After merging `main` into the branch, the typecheck failed with errors about a m
 
 **What I learned:**
 When a type error points at a file my branch doesn't have, I check whether it comes from generated output left over from another branch before touching code. I also learned that `gh issue develop` makes a new branch even when one already exists for the issue, so I look for existing branches first.
+
+## T30 · UI polish + accessibility pass (#30) · Nov 8, 2026
+
+<!-- needs-review -->
+
+**What I built:** An accessibility and small-screen pass over every page. Input and textarea outlines now meet WCAG's 3:1 rule for form controls, every inline link shares one focus-ring style (`textLink` in `src/components/ui/cn.ts`), and long names wrap instead of pushing the page wider than a 375 px phone. A new test (`src/app/globals.test.ts`) checks the theme colors in `globals.css` against WCAG AA in light and dark mode. The same PR closes #73 by giving the slow 100-concept map test its own 60 s timeout.
+
+**Skills & tools:** WCAG 2.1 AA (1.4.3 text contrast, 1.4.11 non-text contrast), Tailwind CSS v4 theme tokens, CSS `overflow-wrap`, flexbox sizing, Vitest, Testing Library
+
+**Asked Claude for:** Audit the app against the T30 criteria (states, keyboard, contrast, 375 px), propose a plan, and build it with tests. I also asked to fold in the #73 test-timeout fix, and to leave the course page's heading as a follow-up.
+
+**Decided / dropped:**
+
+- Audited first instead of rewriting: loading, empty and error states were already on every view, so the work went only into the gaps the audit found.
+- Added a separate `--control-border` token for form fields instead of darkening `--border`, so cards and dividers keep their lighter look.
+- One `overflow-wrap: anywhere` rule on `body` instead of patching each row, plus `shrink-0 whitespace-nowrap` on badges so they don't get squeezed.
+- Gave only the 100-concept test a longer timeout, not the whole file, so every other test keeps the 5 s default.
+- Dropped putting the course name in the course page's main heading: it needs the course fetch moved up a level, which is more than polish.
+
+**Hardest part, and how I solved it:**
+Making long, unbroken names wrap on a phone without breaking the rest of the layout. Flex items won't shrink below their content's width, so a long course or concept name pushed the page sideways. `overflow-wrap: anywhere` on the body fixes that everywhere at once because it also shrinks that minimum width, but then the badges next to those names could be squeezed into a column, so I made badges `shrink-0` and `whitespace-nowrap`.
+
+**What I learned:**
+WCAG has two contrast rules: 4.5:1 for text and 3:1 for the outlines that show where a control is, and our input borders only failed the second one at 1.4:1. Turning the contrast math into a unit test that reads the stylesheet means a future color change can't quietly drop below AA. I'd do the same for any project with a shared theme.

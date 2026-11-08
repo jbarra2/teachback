@@ -14,6 +14,8 @@ import {
   Textarea,
   charCount,
   cn,
+  focusRing,
+  textLink,
 } from ".";
 
 describe("cn", () => {
@@ -62,6 +64,12 @@ describe("Button", () => {
 });
 
 describe("Input", () => {
+  it("has an outline with enough contrast to find it (WCAG 1.4.11)", () => {
+    render(<Input id="title" label="Title" />);
+    // --control-border's 3:1 ratio is checked in src/app/globals.test.ts.
+    expect(screen.getByLabelText("Title")).toHaveClass("border-control-border");
+  });
+
   it("links its label, hint and error", () => {
     render(
       <Input
@@ -130,6 +138,11 @@ describe("Input", () => {
 });
 
 describe("Textarea", () => {
+  it("has an outline with enough contrast to find it (WCAG 1.4.11)", () => {
+    render(<Textarea id="notes" label="Notes" />);
+    expect(screen.getByLabelText("Notes")).toHaveClass("border-control-border");
+  });
+
   function Counted() {
     const [value, setValue] = useState("");
     return (
@@ -177,6 +190,14 @@ describe("Textarea", () => {
 });
 
 describe("Badge", () => {
+  it("stays on one line next to a long name on a narrow screen", () => {
+    render(<Badge>Seems understood</Badge>);
+    expect(screen.getByText("Seems understood")).toHaveClass(
+      "shrink-0",
+      "whitespace-nowrap",
+    );
+  });
+
   it.each(Object.entries(MASTERY_BADGE))(
     "labels %s as %j",
     (state, { label }) => {
@@ -192,6 +213,14 @@ describe("Badge", () => {
   it("renders plain badges", () => {
     render(<Badge>New</Badge>);
     expect(screen.getByText("New")).toHaveClass("text-muted");
+  });
+});
+
+describe("textLink", () => {
+  it("is underlined and shows the shared focus ring", () => {
+    const classes = textLink.split(" ");
+    expect(classes).toContain("underline");
+    expect(classes).toEqual(expect.arrayContaining(focusRing.split(" ")));
   });
 });
 
