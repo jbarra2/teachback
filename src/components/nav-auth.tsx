@@ -8,8 +8,9 @@ import { signOut as defaultSignOut } from "@/components/auth/auth-actions";
 import { Button, cn, focusRing } from "@/components/ui";
 import { authClient } from "@/lib/auth-client";
 
+// min-h-11: at least 44 px tall, easy to tap on a phone (T32).
 export const navLink = cn(
-  "rounded-md px-3 py-2 text-sm font-medium hover:bg-surface",
+  "inline-flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-surface",
   focusRing,
 );
 

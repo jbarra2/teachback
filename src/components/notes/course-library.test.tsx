@@ -12,6 +12,15 @@ const create = () =>
   );
 
 describe("CourseLibrary", () => {
+  // T32: submitted before the page's JavaScript loads, the browser sends the form itself. With the
+  // default GET that put the course name in the URL, the server log and the history (seen live).
+  it("never sends what was typed in a URL, even before it's interactive", () => {
+    render(<CourseLibrary client={mockClient()} />);
+    expect(
+      screen.getByRole("form", { name: "Create a course" }),
+    ).toHaveAttribute("method", "post");
+  });
+
   it("lists the courses, each linking to its page", async () => {
     render(<CourseLibrary client={mockClient()} />);
     const link = await screen.findByRole("link", { name: courses[0]!.name });

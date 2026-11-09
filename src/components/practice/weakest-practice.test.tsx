@@ -104,6 +104,10 @@ describe("WeakestPractice", () => {
     expect(
       screen.getByRole("link", { name: "Go to the course" }),
     ).toHaveAttribute("href", `/courses/${COURSE_2_ID}`);
+    // T32: a way out that stands alone, so it's tap-sized (44 px).
+    expect(screen.getByRole("link", { name: "Go to the course" })).toHaveClass(
+      "min-h-11",
+    );
     expect(
       screen.queryByLabelText("Explain it in your own words"),
     ).not.toBeInTheDocument();
@@ -163,6 +167,10 @@ describe("WeakestPractice", () => {
       expect(
         await screen.findByRole("heading", { name: "Course not found" }),
       ).toBeInTheDocument();
+      // T32: a way out that stands alone, so it's tap-sized (44 px).
+      expect(
+        screen.getByRole("link", { name: "Back to your courses" }),
+      ).toHaveClass("min-h-11");
     });
 
     it("doesn't ask the server about a malformed course id", () => {

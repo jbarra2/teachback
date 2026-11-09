@@ -44,6 +44,16 @@ function deferredSubmit() {
 }
 
 describe("AnswerForm", () => {
+  // T32: submitted before the page's JavaScript loads, the browser sends the form itself. With the
+  // default GET that put the answer in the URL, the server log and the history (seen live).
+  it("never sends what was typed in a URL, even before it's interactive", () => {
+    render(<Harness onSubmit={vi.fn()} />);
+    expect(screen.getByRole("form", { name: "Your answer" })).toHaveAttribute(
+      "method",
+      "post",
+    );
+  });
+
   describe("length limit", () => {
     it("caps the answer at 4000 characters", () => {
       render(<Harness onSubmit={vi.fn()} />);

@@ -50,6 +50,25 @@ const usePastedText = () =>
   fireEvent.click(screen.getByRole("radio", { name: "Pasted text" }));
 
 describe("UploadForm", () => {
+  // T32: submitted before the page's JavaScript loads, the browser sends the form itself. With the
+  // default GET that put pasted notes in the URL, the server log and the history (seen live).
+  it("never sends what was typed in a URL, even before it's interactive", () => {
+    renderForm();
+    expect(screen.getByRole("form", { name: "Upload notes" })).toHaveAttribute(
+      "method",
+      "post",
+    );
+  });
+
+  // T32: the radio buttons were 13 px at 390 px wide; their labels are the tap target.
+  it("makes each choice of file or pasted text at least 44 px tall to tap", () => {
+    renderForm();
+    for (const name of ["A file", "Pasted text"])
+      expect(screen.getByRole("radio", { name }).closest("label")).toHaveClass(
+        "min-h-11",
+      );
+  });
+
   it("limits the file picker to the accepted types, and the title's length", () => {
     renderForm();
     expect(fileInput()).toHaveAttribute("accept", ".txt,.md,.pdf");

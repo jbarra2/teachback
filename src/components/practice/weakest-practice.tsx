@@ -7,7 +7,7 @@ import {
   ErrorState,
   MasteryBadge,
   Spinner,
-  textLink,
+  tapLink,
 } from "@/components/ui";
 import {
   ApiError,
@@ -94,7 +94,7 @@ export function WeakestPractice({
         title="Course not found"
         description="This course doesn't exist or isn't yours."
         action={
-          <Link href="/courses" className={textLink}>
+          <Link href="/courses" className={tapLink}>
             Back to your courses
           </Link>
         }
@@ -107,7 +107,7 @@ export function WeakestPractice({
         title="Nothing to practise yet"
         description="Upload notes to this course first. Once they're processed, we'll pick what to practise."
         action={
-          <Link href={courseHref} className={textLink}>
+          <Link href={courseHref} className={tapLink}>
             Go to the course
           </Link>
         }

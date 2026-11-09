@@ -108,6 +108,7 @@ export function UploadForm({
       <form
         ref={formRef}
         noValidate
+        method="post"
         aria-label="Upload notes"
         onSubmit={(event) => void submit(event)}
         className="flex flex-col gap-4"
@@ -132,7 +133,7 @@ export function UploadForm({
               ["text", "Pasted text"],
             ] as const
           ).map(([value, label]) => (
-            <label key={value} className="flex items-center gap-2">
+            <label key={value} className="flex min-h-11 items-center gap-2">
               <input
                 type="radio"
                 name="mode"

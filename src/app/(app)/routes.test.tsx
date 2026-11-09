@@ -1,6 +1,7 @@
 // The app pages and the loading / not-found boundaries of the app routes. The client parts the pages
 // render are tested in src/components.
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import RootNotFound from "../not-found";
 import CoursePage from "./courses/[courseId]/page";
@@ -17,9 +18,20 @@ vi.mock("@/components/practice/weakest-practice", () => ({
     <p>weakest practice for {courseId}</p>
   ),
 }));
+// The stand-in shows the actions the page hands it in a region of their own; the real one shows
+// them only for a course it loaded (tested in src/components/notes).
 vi.mock("@/components/notes/course-notes", () => ({
-  CourseNotes: ({ courseId }: { courseId: string }) => (
-    <p>notes for {courseId}</p>
+  CourseNotes: ({
+    courseId,
+    actions,
+  }: {
+    courseId: string;
+    actions?: ReactNode;
+  }) => (
+    <>
+      <p>notes for {courseId}</p>
+      <section aria-label="Actions slot">{actions}</section>
+    </>
   ),
 }));
 
@@ -54,6 +66,36 @@ describe("pages", () => {
       screen.getByRole("link", { name: "Practice weakest" }),
     ).toHaveAttribute("href", "/courses/c1/practice/weakest");
     expect(screen.getByText("notes for c1")).toBeInTheDocument();
+  });
+
+  // T32: these were 20–36 px tall at 390 px wide.
+  it("makes the course's links at least 44 px tall to tap", async () => {
+    render(
+      await CoursePage({
+        params: Promise.resolve({ courseId: "c1" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    for (const name of ["Practice", "Concept map", "Practice weakest"])
+      expect(screen.getByRole("link", { name })).toHaveClass(
+        "inline-flex",
+        "min-h-11",
+      );
+  });
+
+  // T32: the links go to CourseNotes, which shows them only once the course loads, never above
+  // "Course not found". Rendered next to it, they'd show for any course id.
+  it("hands every course link to the notes instead of rendering them itself", async () => {
+    render(
+      await CoursePage({
+        params: Promise.resolve({ courseId: "c1" }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    const slot = screen.getByRole("region", { name: "Actions slot" });
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+    for (const link of screen.getAllByRole("link"))
+      expect(slot).toContainElement(link);
   });
 
   it("encodes the course id in its links", async () => {

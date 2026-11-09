@@ -45,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  nonces.next = null;
   scalar.page = null;
 });
 
@@ -96,7 +97,28 @@ describe("GET /api/docs", () => {
   });
 
   it("loads one script from outside: the pinned Scalar release, checked by its hash", async () => {
-    const { res, html } = await render();
+    expectOnlyThePinnedBundle(await render());
+  });
+
+  // Regression (T32): the check below once read a "//" inside the random base64 nonce as a URL,
+  // so this test failed about one run in 200. The nonce is this response's own, not a URL.
+  it("loads only the pinned bundle whatever characters the nonce has", async () => {
+    nonces.next = "ab//cd+ef/AAAAAAAAAAAA==";
+    const rendered = await render();
+    // The forced nonce was used, so this is the case that used to fail.
+    expect(rendered.res.headers.get("content-security-policy")).toContain(
+      "'nonce-ab//cd+ef/AAAAAAAAAAAA=='",
+    );
+    expectOnlyThePinnedBundle(rendered);
+  });
+
+  function expectOnlyThePinnedBundle({
+    res,
+    html,
+  }: {
+    res: Response;
+    html: string;
+  }) {
     const scripts = [
       ...html.matchAll(/<script\b[^>]*\bsrc="[^"]*"[^>]*>/g),
     ].map((m) => m[0]);
@@ -112,9 +134,15 @@ describe("GET /api/docs", () => {
     );
     expect(SCALAR_BUNDLE_INTEGRITY).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     // Nothing else from outside in any form: the pinned bundle is the page's only absolute URL.
-    const urls = html.match(/(?:[a-z][a-z0-9+.-]*:)?\/\/[^\s"'`<>()]+/gi) ?? [];
+    // This response's nonce is set aside first, wherever the page carries it (script attributes and
+    // Scalar's config): it's base64, so it can contain "//".
+    expect(nonce).toBeTruthy();
+    const urls =
+      html
+        .replaceAll(nonce!, "")
+        .match(/(?:[a-z][a-z0-9+.-]*:)?\/\/[^\s"'`<>()]+/gi) ?? [];
     expect([...new Set(urls)]).toEqual([SCALAR_BUNDLE_URL]);
-  });
+  }
 
   it("fails closed with a 500 if Scalar's page loads anything else as well", async () => {
     scalar.page = `<html><script src="${SCALAR_BUNDLE_URL}"></script><script type="module">import("https://cdn.jsdelivr.net/npm/@scalar/api-reference/esm.js")</script></html>`;

@@ -108,14 +108,78 @@ describe("CourseNotes", () => {
       />,
     );
     expect(await screen.findByText("Course not found")).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Back to your courses" }),
-    ).toHaveAttribute("href", "/courses");
+    const back = screen.getByRole("link", { name: "Back to your courses" });
+    expect(back).toHaveAttribute("href", "/courses");
+    // T32: a way out that stands alone, so it's tap-sized (44 px).
+    expect(back).toHaveClass("min-h-11");
   });
 
   it("says the course wasn't found for a malformed id", async () => {
     render(<CourseNotes courseId="not-an-id" client={mockClient()} />);
     expect(await screen.findByText("Course not found")).toBeInTheDocument();
+  });
+
+  // T32: the course's links (Practice, Concept map, Practice weakest) once showed above "Course
+  // not found" on another student's course.
+  describe("the course's actions", () => {
+    const actions = <a href="/elsewhere">Course action</a>;
+    const action = () => screen.queryByRole("link", { name: "Course action" });
+
+    it("shows them once the course has loaded, not before", async () => {
+      render(
+        <CourseNotes
+          courseId={COURSE_ID}
+          client={mockClient()}
+          actions={actions}
+        />,
+      );
+      expect(action()).not.toBeInTheDocument();
+      expect(
+        await screen.findByRole("heading", { name: courses[0]!.name }),
+      ).toBeInTheDocument();
+      expect(action()).toBeInTheDocument();
+    });
+
+    it.each([
+      ["an unknown id", "cnope000000000000000000001"],
+      ["a malformed id", "not-an-id"],
+    ])("leaves them out for %s", async (_name, courseId) => {
+      render(
+        <CourseNotes
+          courseId={courseId}
+          client={mockClient()}
+          actions={actions}
+        />,
+      );
+      await screen.findByText("Course not found");
+      expect(action()).not.toBeInTheDocument();
+    });
+
+    it("treats a rate limit as an error to retry, not a missing course", async () => {
+      const { client } = networkClient(async () =>
+        errorResponse(429, "RATE_LIMITED", "Too many requests."),
+      );
+      render(
+        <CourseNotes courseId={COURSE_ID} client={client} actions={actions} />,
+      );
+      await screen.findByRole("alert");
+      expect(
+        screen.getByRole("button", { name: "Try again" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("Course not found")).not.toBeInTheDocument();
+      expect(action()).not.toBeInTheDocument();
+    });
+
+    it("leaves them out when the course can't load", async () => {
+      const { client } = networkClient(async () =>
+        errorResponse(500, "INTERNAL", "Something went wrong."),
+      );
+      render(
+        <CourseNotes courseId={COURSE_ID} client={client} actions={actions} />,
+      );
+      await screen.findByRole("alert");
+      expect(action()).not.toBeInTheDocument();
+    });
   });
 
   it("shows a safe message when loading fails, and retries", async () => {

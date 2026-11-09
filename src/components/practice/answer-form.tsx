@@ -49,6 +49,7 @@ export function AnswerForm({
 
   return (
     <form
+      method="post"
       aria-label="Your answer"
       onSubmit={handleSubmit}
       className="flex flex-col gap-3"

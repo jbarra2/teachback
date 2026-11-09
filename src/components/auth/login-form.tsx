@@ -34,6 +34,7 @@ export function LoginForm({ next, onSubmit = logIn }: LoginFormProps) {
     <form
       ref={formRef}
       noValidate
+      method="post"
       aria-label="Log in"
       onSubmit={(event) => void handleSubmit(event)}
       className="flex flex-col gap-4"

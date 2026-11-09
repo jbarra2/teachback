@@ -30,6 +30,16 @@ describe("ConceptPicker", () => {
     expect(screen.getByText("Seems understood")).toBeInTheDocument();
   });
 
+  // T32: these were 24 px tall at 390 px wide (browser walk).
+  it("makes each concept link at least 44 px tall to tap", async () => {
+    render(<ConceptPicker courseId={COURSE_ID} client={mockClient()} />);
+    await screen.findByRole("link", { name: "Osmosis" });
+    for (const concept of concepts)
+      expect(screen.getByRole("link", { name: concept.name })).toHaveClass(
+        "min-h-11",
+      );
+  });
+
   it("points to the course page when there are no concepts", async () => {
     render(<ConceptPicker courseId={COURSE_2_ID} client={mockClient()} />);
     expect(
@@ -38,6 +48,33 @@ describe("ConceptPicker", () => {
     expect(
       screen.getByRole("link", { name: "Go to the course" }),
     ).toHaveAttribute("href", `/courses/${COURSE_2_ID}`);
+    // T32: a way out that stands alone, so it's tap-sized (44 px).
+    expect(screen.getByRole("link", { name: "Go to the course" })).toHaveClass(
+      "min-h-11",
+    );
+  });
+
+  // T32: like the course page, another student's course (or an unknown or malformed id) is "not
+  // found", not an error to retry.
+  it.each([
+    ["another student's course or an unknown id", 404, "NOT_FOUND"],
+    ["a malformed id", 400, "VALIDATION_ERROR"],
+  ])("says %s isn't found, with a way back", async (_name, status, code) => {
+    render(
+      <ConceptPicker
+        courseId={COURSE_ID}
+        client={mockClient(async () =>
+          Response.json({ error: { code, message: "Nope." } }, { status }),
+        )}
+      />,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Course not found" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Back to your courses" }),
+    ).toHaveAttribute("href", "/courses");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows the error and retries", async () => {
@@ -46,15 +83,15 @@ describe("ConceptPicker", () => {
       calls += 1;
       return calls === 1
         ? Response.json(
-            { error: { code: "NOT_FOUND", message: "Not found." } },
-            { status: 404 },
+            { error: { code: "INTERNAL", message: "Something went wrong." } },
+            { status: 500 },
           )
         : Response.json(concepts);
     });
     render(<ConceptPicker courseId={COURSE_ID} client={client} />);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Couldn't load concepts");
-    expect(alert).toHaveTextContent("Not found.");
+    expect(alert).toHaveTextContent("Something went wrong.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(
       await screen.findByRole("link", { name: "Osmosis" }),

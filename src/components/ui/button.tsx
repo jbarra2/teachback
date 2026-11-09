@@ -31,7 +31,8 @@ export function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition",
+        // min-h-11: at least 44 px tall, easy to tap on a phone (T32).
+        "inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition",
         "disabled:cursor-not-allowed disabled:opacity-60",
         focusRing,
         VARIANTS[variant],

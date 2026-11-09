@@ -36,6 +36,7 @@ export function SignupForm({ onSubmit = signUp }: SignupFormProps) {
     <form
       ref={formRef}
       noValidate
+      method="post"
       aria-label="Sign up"
       onSubmit={(event) => void handleSubmit(event)}
       className="flex flex-col gap-4"
