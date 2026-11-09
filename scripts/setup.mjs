@@ -256,6 +256,16 @@ else {
     });
     ok("Git hooks enabled (.githooks)");
   }
+  // The end-to-end tests (`npm run test:e2e`, also the last step of `npm run verify`) drive a real
+  // Chromium, which npm doesn't download. Safe to repeat: Playwright skips it once installed.
+  if (hasScript("test:e2e")) {
+    if (run("npx", ["playwright", "install", "chromium"]).status === 0)
+      ok("Playwright's Chromium installed (for npm run test:e2e)");
+    else
+      warn(
+        "Couldn't install Playwright's Chromium. The app works without it; for the end-to-end tests, run `npx playwright install chromium`.",
+      );
+  }
 }
 
 // 4. Databases --------------------------------------------------------------

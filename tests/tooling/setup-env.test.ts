@@ -604,3 +604,52 @@ describe("setup.mjs stops before writing when .env can't be used", () => {
     expect(() => statSync(env)).toThrow();
   });
 });
+
+// T33: `npm run verify` ends with the end-to-end tests, which need Playwright's Chromium. A fresh
+// clone that followed only the README had none, so setup installs it once the project has e2e.
+describe("setup.mjs installs the browser for the end-to-end tests", () => {
+  /** A project with e2e tests, and an npx that records its arguments and exits with `status`. */
+  function e2eProject(status: number) {
+    const p = project();
+    writeFileSync(
+      path.join(p.dir, "package.json"),
+      JSON.stringify({ scripts: { "test:e2e": "playwright test" } }),
+    );
+    const bin = path.join(p.dir, "bin");
+    writeFileSync(
+      path.join(bin, "npx"),
+      `#!/bin/sh\necho "$@" >> npx-args.txt\nexit ${status}\n`,
+    );
+    chmodSync(path.join(bin, "npx"), 0o755);
+    writeFileSync(
+      path.join(bin, "npx.cmd"),
+      `@echo off\r\necho %*>> npx-args.txt\r\nexit /b ${status}\r\n`,
+    );
+    return p;
+  }
+  const npxArgs = (dir: string) =>
+    readFileSync(path.join(dir, "npx-args.txt"), "utf8").trim();
+
+  it("installs Playwright's Chromium", () => {
+    const { dir } = e2eProject(0);
+    const res = runSetup(dir);
+    expect(res.status).toBe(0);
+    expect(npxArgs(dir)).toBe("playwright install chromium");
+    expect(res.stdout).toContain("✓ Playwright's Chromium installed");
+  });
+
+  it("finishes with a note, not a failure, when the download fails", () => {
+    const { dir } = e2eProject(1);
+    const res = runSetup(dir);
+    expect(res.status).toBe(0);
+    expect(npxArgs(dir)).toBe("playwright install chromium");
+    expect(res.stdout).toContain("npx playwright install chromium");
+    expect(res.stdout).not.toContain("✓ Playwright's Chromium installed");
+  });
+
+  it("skips it for a project without end-to-end tests", () => {
+    const { dir } = project();
+    runSetup(dir);
+    expect(() => npxArgs(dir)).toThrow();
+  });
+});
