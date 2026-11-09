@@ -22,8 +22,7 @@ for (const path of ["//evil.example/x", "/%2F%2Fevil.example/x"])
     page,
   }) => {
     await page.goto(`${OTHER}${path}`);
-    await expect(page).toHaveURL(
-      new RegExp(`^${BASE_URL.replaceAll(".", "\.")}/`),
-    );
-    expect(new URL(page.url()).host).toBe(new URL(BASE_URL).host);
+    // Compared as a URL, not a pattern: the same scheme, host and port as the configured address.
+    await expect(page).toHaveURL((url) => url.origin === BASE_URL);
+    expect(new URL(page.url()).origin).toBe(BASE_URL);
   });
