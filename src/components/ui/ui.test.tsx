@@ -15,6 +15,7 @@ import {
   charCount,
   cn,
   focusRing,
+  tapLink,
   textLink,
 } from ".";
 
@@ -221,6 +222,31 @@ describe("textLink", () => {
     const classes = textLink.split(" ");
     expect(classes).toContain("underline");
     expect(classes).toEqual(expect.arrayContaining(focusRing.split(" ")));
+  });
+});
+
+// T32: at 390 px these were 28–38 px tall. 44 px (min-h-11) is the touch target size the browser
+// walk checks; links inside a sentence keep textLink, which the guideline exempts.
+describe("tap targets", () => {
+  it("tapLink is a textLink at least 44 px tall, for links that stand alone", () => {
+    const classes = tapLink.split(" ");
+    expect(classes).toEqual(expect.arrayContaining(textLink.split(" ")));
+    expect(classes).toEqual(
+      expect.arrayContaining(["inline-flex", "items-center", "min-h-11"]),
+    );
+  });
+
+  it("buttons and text inputs are at least 44 px tall", () => {
+    render(
+      <>
+        <Button>Save</Button>
+        <Input id="name" label="Name" />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toHaveClass(
+      "min-h-11",
+    );
+    expect(screen.getByLabelText("Name")).toHaveClass("min-h-11");
   });
 });
 

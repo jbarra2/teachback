@@ -11,7 +11,12 @@ export function TopNav() {
       >
         <Link
           href="/"
-          className={cn("text-lg font-semibold", focusRing, "rounded-md px-1")}
+          className={cn(
+            // min-h-11: at least 44 px tall, easy to tap on a phone (T32).
+            "inline-flex min-h-11 items-center text-lg font-semibold",
+            focusRing,
+            "rounded-md px-1",
+          )}
         >
           TeachBack
         </Link>

@@ -49,7 +49,9 @@ export function Input({
         value={value}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, { hint, error })}
-        className={cn(controlClass, focusRing, className)}
+        // min-h-11: at least 44 px tall, easy to tap on a phone (T32). Not in controlClass, which
+        // the taller Textarea shares.
+        className={cn(controlClass, "min-h-11", focusRing, className)}
         {...props}
       />
     </Field>

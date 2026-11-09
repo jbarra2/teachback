@@ -579,3 +579,33 @@ Making sure the eval's numbers can be trusted, since a harness that reports the 
 
 **What I learned:**
 A perfect score is a result to question rather than celebrate: 12/12 on both models mostly showed that my cases were too easy to separate them. And tests for a measuring tool have to pin the measurement itself, not just its shape, because a stopwatch that starts at the wrong moment still produces a plausible number.
+
+## T32 · Bug bash: smoke + abuse testing (#32) · Nov 8, 2026
+
+**What I built:** I ran the TESTING §7 smoke and abuse checklists against a real `next dev` server with its own database, scripted in a real browser. I filed every finding as a `bug` issue (#90–#97) and fixed seven of them, each with a regression test:
+
+- **#90:** opening the app on the address `npm run dev` prints (127.0.0.1) no longer gives 403s. The proxy answers such a page with a small page that opens the same path on the configured address.
+- **#91:** the flaky docs-route nonce test.
+- **#92, #93:** another student's course shows "Course not found" on the course, map and practice pages, with none of the course's links.
+- **#94:** 44 px tap targets at phone width.
+- **#95:** every form posts, so a submit before the page's JavaScript loads never puts what was typed in a URL.
+- **#96:** a friendly 503 page instead of a blank 500 while the database is down.
+
+New end-to-end tests cover the address hand-off, a no-JavaScript sign-in and the map's zoom buttons. #97 (a `next dev` reload loop on a cold start) is documented, not fixed.
+
+**Skills & tools:** Next.js 16 proxy, Playwright (real browser, e2e, no-JavaScript runs), Vitest and Testing Library, mutation testing, Content Security Policy, WCAG target sizes, Docker, GitHub CLI, Claude Code
+
+**Asked Claude for:** Start T32 after reviewing and merging T29, run the checklists myself, fix what we found (granting an ownership exception for the frontend and e2e files so it could all land before submission), and later do my manual test steps on an isolated stack instead of my own database.
+
+**Decided / dropped:**
+
+- Dropped a plain redirect for the 127.0.0.1 fix after it looped in a live run: Next rewrites a proxy redirect to its own host into a relative one. A small page with a link built from the configured address works with everyone's existing `.env`. It runs under `next dev` only, so a staging build behind another host is left alone.
+- Kept the session check failing closed while the database is down, and made it a page that says so instead of a blank error.
+- Ran the live checks on a throwaway database container, so stopping the database never touched anyone's dev data.
+- Stopped the reviews after three rounds: every High or Medium they found was fixed, and each fix was proven by breaking it on purpose.
+
+**Hardest part, and how I solved it:**
+The 127.0.0.1 fix passed all its unit tests and still failed in the browser with "too many redirects". I captured the real response with curl and read Next's adapter source. Next builds the proxy's request URL as `localhost` whatever the browser sent, and turns any redirect to that same host into a relative one, so the browser was sent back to 127.0.0.1 forever. I switched to a small HTML page, which has no Location header for Next to rewrite, and added an end-to-end test that fails if the code goes back to a redirect.
+
+**What I learned:**
+Unit tests that call a function directly can't see what the framework does to its result, so behaviour that depends on the framework needs one test through the real server. Live runs also turned up two bugs no unit test was looking for: a form that falls back to GET before hydration, and a blank page when the database is down. And a stale dev build cache can look exactly like an app bug.

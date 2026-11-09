@@ -24,6 +24,16 @@ describe("TopNav", () => {
     expect(screen.getByText("session links")).toBeInTheDocument();
   });
 
+  // T32: the brand link was 28 px tall at 390 px wide.
+  it("makes the home link at least 44 px tall to tap", () => {
+    render(<TopNav />);
+    // min-height does nothing on an inline link: inline-flex is part of the fix.
+    expect(screen.getByRole("link", { name: "TeachBack" })).toHaveClass(
+      "inline-flex",
+      "min-h-11",
+    );
+  });
+
   it("wraps onto a second line instead of overflowing a 375 px screen", () => {
     render(<TopNav />);
     const nav = screen.getByRole("navigation", { name: "Main" });

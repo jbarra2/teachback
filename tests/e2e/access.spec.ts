@@ -37,15 +37,21 @@ test("user B gets not-found on user A's course, practice and map pages", async (
   try {
     const page = await context.newPage();
 
+    // T32: each page says "not found" (not an error to retry), with none of the course's own links.
+    const courseLinks = page
+      .getByRole("main")
+      .getByRole("link", { name: /^(Practice|Concept map|Practice weakest)$/ });
+
     await page.goto(`/courses/${courseId}`);
     await expect(
       page.getByRole("heading", { name: "Course not found" }),
     ).toBeVisible();
+    await expect(courseLinks).toHaveCount(0);
 
     await page.goto(`/courses/${courseId}/practice`);
     await expect(
-      page.getByRole("alert").filter({ hasText: "Couldn't load concepts" }),
-    ).toContainText(/not found/i);
+      page.getByRole("heading", { name: "Course not found" }),
+    ).toBeVisible();
 
     await page.goto(`/courses/${courseId}/practice?concept=${concept.id}`);
     await expect(
@@ -54,12 +60,35 @@ test("user B gets not-found on user A's course, practice and map pages", async (
 
     await page.goto(`/courses/${courseId}/map`);
     await expect(
-      page.getByRole("alert").filter({ hasText: "Couldn't load the map" }),
-    ).toContainText(/not found/i);
+      page.getByRole("heading", { name: "Course not found" }),
+    ).toBeVisible();
+    await expect(courseLinks).toHaveCount(0);
+    // Scoped to main: Next's route announcer is an alert too.
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 
     // Nothing of A's leaked onto any of those pages.
     for (const text of [courseName, concept.name])
       await expect(page.getByText(text)).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+// The other side of the check above: the same locator finds all three links for the owner, so
+// "none for B" can't pass just because it matches nothing.
+test("user A sees the course's own links on their course", async ({
+  browser,
+}) => {
+  const context = await signedInContext(browser, "a");
+  try {
+    const page = await context.newPage();
+    await page.goto(`/courses/${courseId}`);
+    await expect(page.getByRole("heading", { name: courseName })).toBeVisible();
+    await expect(
+      page.getByRole("main").getByRole("link", {
+        name: /^(Practice|Concept map|Practice weakest)$/,
+      }),
+    ).toHaveCount(3);
   } finally {
     await context.close();
   }

@@ -1,7 +1,7 @@
 // Sessions end to end (T29, TESTING §7): signed-out visitors go to /login, and signing out really
 // ends the session, for pages and the API alike.
 import { expect, test } from "playwright/test";
-import { IP_HEADER, freshIp } from "./env";
+import { IP_HEADER, PASSWORD, freshIp } from "./env";
 import { createCourse, newSignedInUser, uniqueName } from "./helpers";
 
 test.describe("signed out", () => {
@@ -24,6 +24,35 @@ test.describe("signed out", () => {
     expect(await res.json()).toMatchObject({
       error: { code: "UNAUTHENTICATED" },
     });
+  });
+});
+
+// T32 (#95): before the page's JavaScript runs, the browser submits the form itself. It must
+// never put what was typed in the URL, and the server must answer with a page, not an error.
+test.describe("a submit before the page is interactive", () => {
+  test.use({
+    javaScriptEnabled: false,
+    extraHTTPHeaders: { [IP_HEADER]: freshIp() },
+  });
+
+  test("keeps the email and password out of the URL", async ({ page }) => {
+    const requests: string[] = [];
+    page.on("request", (request) => requests.push(request.url()));
+    await page.goto("/login");
+    await page.getByLabel("Email").fill("nobody@example.test");
+    await page.getByLabel("Password").fill(PASSWORD);
+    const [response] = await Promise.all([
+      page.waitForEvent("response", (r) => r.request().method() === "POST"),
+      page.getByRole("button", { name: "Log in" }).click(),
+    ]);
+    // The page itself again, not an error page.
+    expect(response.status()).toBe(200);
+    await expect(page.getByRole("form", { name: "Log in" })).toBeVisible();
+    expect(page.url()).not.toContain(PASSWORD);
+    for (const url of requests) {
+      expect(url).not.toContain(PASSWORD);
+      expect(url).not.toContain("nobody%40example.test");
+    }
   });
 });
 

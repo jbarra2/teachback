@@ -26,6 +26,16 @@ function type(input: HTMLElement, value: string) {
 }
 
 describe("LoginForm", () => {
+  // T32: submitted before the page's JavaScript loads, the browser sends the form itself. With the
+  // default GET that put the password in the URL, the server log and the history (seen live).
+  it("never sends what was typed in a URL, even before it's interactive", () => {
+    render(<LoginForm onSubmit={ok} />);
+    expect(screen.getByRole("form", { name: "Log in" })).toHaveAttribute(
+      "method",
+      "post",
+    );
+  });
+
   it("labels every field and uses the right input types", () => {
     render(<LoginForm onSubmit={ok} />);
     expect(email()).toHaveAttribute("type", "email");

@@ -57,3 +57,10 @@ body {
   /* A long unbroken name or title wraps instead of pushing the page wider than a phone (375 px). */
   overflow-wrap: anywhere;
 }
+
+/* T32: React Flow's zoom buttons are 26 px; on a phone they need 44 px to be easy to tap. The extra
+   class makes this win over React Flow's own stylesheet whatever order the two load in. */
+.react-flow .react-flow__controls-button {
+  width: 44px;
+  height: 44px;
+}

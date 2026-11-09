@@ -27,6 +27,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("proxy: signed-out visitors", () => {
@@ -76,6 +77,159 @@ describe("proxy: signed-out visitors", () => {
   });
 });
 
+// T32: `npm run dev` prints http://127.0.0.1:3000 while BETTER_AUTH_URL says localhost, and the
+// Origin check then refused every sign-up from 127.0.0.1 with a 403. Outside production, a page
+// opened under another name for the server gets a small page that opens the same path on the
+// configured origin. Not a Location redirect: Next rewrites a proxy redirect to its own
+// "localhost" into a relative one, which sent the browser back to 127.0.0.1 forever (seen live).
+// nextUrl doesn't name the host the browser used either, so the Host header is what tells.
+describe("proxy: one name for the app outside production", () => {
+  const LOCAL = "http://localhost:3000";
+  const onHost = (host: string, path: string) =>
+    proxy(
+      new NextRequest(`http://127.0.0.1:3000${path}`, { headers: { host } }),
+    );
+  const unescapeHtml = (text: string) =>
+    text
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&");
+
+  /** Where the "open it on the configured address" page sends the browser (null: not that page). */
+  async function sentTo(response: Response): Promise<string | null> {
+    if (response.headers.has("location")) return null;
+    if (!response.headers.get("content-type")?.startsWith("text/html"))
+      return null;
+    const html = await response.clone().text();
+    const refresh = /<meta http-equiv="refresh" content="0; url=([^"]*)">/.exec(
+      html,
+    )?.[1];
+    const link = /<a href="([^"]*)">/.exec(html)?.[1];
+    if (refresh === undefined || refresh !== link) return null;
+    return unescapeHtml(refresh);
+  }
+
+  beforeEach(() => {
+    // `next dev` runs with NODE_ENV=development; anything else is left alone (see below).
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("BETTER_AUTH_URL", LOCAL);
+  });
+
+  it("sends a page opened on 127.0.0.1 to the same path and query on the configured origin", async () => {
+    const response = await onHost(
+      "127.0.0.1:3000",
+      "/courses/c1/practice?concept=c2",
+    );
+    expect(response.status).toBe(200);
+    expect(await sentTo(response)).toBe(
+      `${LOCAL}/courses/c1/practice?concept=c2`,
+    );
+    // Says what's happening, for anyone whose browser doesn't follow it.
+    expect(await response.text()).toContain("Opening TeachBack at");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    // Before anything else: no session lookup on the wrong name.
+    expect(readSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["/", "/login", "/signup", "/courses"])(
+    "does it for %s too (public, sign-in and app pages alike)",
+    async (path) => {
+      expect(await sentTo(await onHost("127.0.0.1:3000", path))).toBe(
+        `${LOCAL}${path}`,
+      );
+    },
+  );
+
+  it("leaves a request on the configured host alone (no loop)", async () => {
+    expect(passesThrough(await onHost("localhost:3000", "/"))).toBe(true);
+    const page = await onHost("localhost:3000", "/courses");
+    // The usual signed-out redirect, not a second trip to the same page.
+    expect(new URL(page.headers.get("location")!).pathname).toBe("/login");
+    expect(readSession).toHaveBeenCalledOnce();
+  });
+
+  it("compares hosts the way URLs do: case and a default port don't count", async () => {
+    expect(passesThrough(await onHost("LOCALHOST:3000", "/"))).toBe(true);
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost");
+    expect(passesThrough(await onHost("localhost:80", "/"))).toBe(true);
+  });
+
+  it("sends a different port on the same name to the configured one", async () => {
+    expect(await sentTo(await onHost("localhost:3001", "/login"))).toBe(
+      `${LOCAL}/login`,
+    );
+  });
+
+  it.each([
+    "//evil.example/x",
+    "/\\evil.example/x",
+    "/%2F%2Fevil.example/x",
+    "/%5Cevil.example/x",
+    "/https://evil.example/x",
+  ])("never sends the browser to another site (path %s)", async (path) => {
+    const target = await sentTo(await onHost("127.0.0.1:3000", path));
+    expect(new URL(target!).origin).toBe(LOCAL);
+    // The same path, kept as a path on this site.
+    expect(target).toBe(`${LOCAL}${new URL(`http://h${path}`).pathname}`);
+  });
+
+  it("escapes the address it writes into the page", async () => {
+    const response = await onHost("127.0.0.1:3000", `/it's"<b>?q='x'&r="<i>"`);
+    const html = await response.clone().text();
+    // " < and > never reach the page: URL serialisation already percent-encodes them.
+    expect(html).not.toMatch(/it's/);
+    expect(html).toContain("/it&#39;s");
+    expect(html).toContain("&amp;r=");
+    // Still the same path and query once the browser reads it back.
+    expect(await sentTo(response)).toBe(
+      `${LOCAL}${new URL(`http://h/it's"<b>?q='x'&r="<i>"`).pathname}${new URL(`http://h/?q='x'&r="<i>"`).search}`,
+    );
+  });
+
+  it.each([
+    "evil.example",
+    "evil.example:3000",
+    "localhost:3000@evil.example",
+    "[::1]:3000",
+    "not a host",
+    // Only contains the configured host: not the same thing, so these are sent there too.
+    "user@localhost:3000",
+    "localhost:3000/x",
+    ":pw@localhost:3000",
+  ])(
+    "takes the target from configuration, never from the Host header (%s)",
+    async (host) => {
+      expect(await sentTo(await onHost(host, "/login"))).toBe(`${LOCAL}/login`);
+    },
+  );
+
+  it("does nothing in production, where the host's own routing decides", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("BETTER_AUTH_URL", "https://teachback.example.test");
+    expect(passesThrough(await onHost("other.example", "/"))).toBe(true);
+  });
+
+  // A staging or preview build behind a proxy that rewrites Host must not answer every page this way.
+  it.each(["test", "staging", ""])(
+    "does nothing outside `next dev` (NODE_ENV=%j)",
+    async (nodeEnv) => {
+      vi.stubEnv("NODE_ENV", nodeEnv);
+      expect(passesThrough(await onHost("127.0.0.1:3000", "/"))).toBe(true);
+    },
+  );
+
+  it("does nothing without BETTER_AUTH_URL, or without a Host header", async () => {
+    vi.stubEnv("BETTER_AUTH_URL", "");
+    expect(passesThrough(await onHost("127.0.0.1:3000", "/"))).toBe(true);
+    vi.stubEnv("BETTER_AUTH_URL", LOCAL);
+    expect(
+      passesThrough(await proxy(new NextRequest("http://127.0.0.1:3000/"))),
+    ).toBe(true);
+  });
+});
+
 describe("proxy: signed-in users", () => {
   beforeEach(() => {
     readSession.mockResolvedValue(SESSION);
@@ -108,9 +262,45 @@ describe("proxy: signed-in users", () => {
 });
 
 describe("proxy: failures", () => {
-  it("fails closed on an app page when the session can't be read (database down)", async () => {
-    readSession.mockRejectedValue(new Error("db down"));
-    await expect(visit("/courses")).rejects.toThrow();
+  it("logs only the type of a rejection that isn't an Error", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    readSession.mockRejectedValue(
+      "connect ECONNREFUSED 127.0.0.1:5433 secret-marker-7f3a",
+    );
+    const response = await visit("/courses");
+    expect(response.status).toBe(503);
+    expect(error).toHaveBeenCalledOnce();
+    const line = String(error.mock.calls[0]?.[0]);
+    expect(line).not.toMatch(/ECONNREFUSED|secret-marker/);
+    expect(line).toContain('"errorName":"string"');
+  });
+
+  // T32: it used to throw, which showed a blank 500 page while the database was down (seen live).
+  it("fails closed on an app page when the session can't be read (database down), with a friendly page", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    readSession.mockRejectedValue(
+      new Error("connect ECONNREFUSED 127.0.0.1:5433 secret-marker-7f3a"),
+    );
+    const response = await visit("/courses");
+    // Closed: neither the page nor a redirect that could loop.
+    expect(passesThrough(response)).toBe(false);
+    expect(response.headers.has("location")).toBe(false);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeTruthy();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-type")).toMatch(/^text\/html/);
+    const html = await response.text();
+    expect(html).toContain("TeachBack can't load right now");
+    // Readable on a phone, in the app's plain style rather than the browser's default.
+    expect(html).toContain('<meta name="viewport"');
+    expect(html).toMatch(/<style>[^<]*font-family:/);
+    // Nothing from the error reaches the page; the log gets its name only.
+    expect(html).not.toMatch(/ECONNREFUSED|5433|secret-marker/);
+    expect(error).toHaveBeenCalledOnce();
+    expect(String(error.mock.calls[0]?.[0])).not.toMatch(
+      /ECONNREFUSED|secret-marker/,
+    );
+    error.mockRestore();
   });
 
   it("still shows /login when the session can't be read", async () => {
@@ -146,6 +336,26 @@ describe("proxy: security headers", () => {
       },
     ],
     ["an app page, signed out (redirect)", () => visit("/courses")],
+    [
+      "an app page while the database is down (unavailable page, redirect-like: no render)",
+      () => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        readSession.mockRejectedValue(new Error("db down"));
+        return visit("/courses");
+      },
+    ],
+    [
+      "a page on another name for the server (redirect-like page, next dev)",
+      () => {
+        vi.stubEnv("NODE_ENV", "development");
+        vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+        return proxy(
+          new NextRequest("http://127.0.0.1:3000/courses", {
+            headers: { host: "127.0.0.1:3000" },
+          }),
+        );
+      },
+    ],
     [
       "an app page, signed in",
       () => {

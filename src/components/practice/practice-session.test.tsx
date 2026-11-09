@@ -254,6 +254,10 @@ describe("PracticeSession", () => {
       expect(
         screen.getByRole("link", { name: "Choose a concept" }),
       ).toHaveAttribute("href", `/courses/${COURSE_ID}/practice`);
+      // T32: a way out that stands alone, so it's tap-sized (44 px).
+      expect(
+        screen.getByRole("link", { name: "Choose a concept" }),
+      ).toHaveClass("min-h-11");
     });
 
     it("doesn't ask the server about a malformed concept id", () => {

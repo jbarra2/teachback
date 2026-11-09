@@ -53,6 +53,20 @@ describe("NavAuth", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  // T32: the header links were 34 px tall at 390 px wide.
+  it("makes every header link and the sign-out button at least 44 px tall", () => {
+    renderNav();
+    for (const name of ["Log in", "Sign up"])
+      // min-height does nothing on an inline link: inline-flex is part of the fix.
+      expect(screen.getByRole("link", { name })).toHaveClass(
+        "inline-flex",
+        "min-h-11",
+      );
+    session.current = { data: { user: { name: "Ada" } }, isPending: false };
+    renderNav();
+    expect(signOutButton()).toHaveClass("min-h-11");
+  });
+
   it("signs out and goes to /login when signed in", async () => {
     session.current = { data: { user: { name: "Ada" } }, isPending: false };
     const signOut = renderNav();

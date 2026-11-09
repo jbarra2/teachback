@@ -8,7 +8,7 @@ import {
   ErrorState,
   MasteryBadge,
   Spinner,
-  textLink,
+  tapLink,
   cn,
 } from "@/components/ui";
 import {
@@ -18,11 +18,16 @@ import {
   type ApiClient,
   type CourseConcept,
 } from "@/lib/api-client";
+import {
+  CourseNotFound,
+  isCourseMissing,
+} from "@/components/notes/course-not-found";
 import { errorMessage } from "./error-message";
 
 type PickerState =
   | { status: "loading" }
   | { status: "ready"; concepts: CourseConcept[] }
+  | { status: "missing" }
   | { status: "error"; message: string };
 
 interface ConceptPickerProps {
@@ -46,7 +51,11 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
       (concepts) => setState({ status: "ready", concepts }),
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
-        setState({ status: "error", message: errorMessage(error) });
+        setState(
+          isCourseMissing(error)
+            ? { status: "missing" }
+            : { status: "error", message: errorMessage(error) },
+        );
       },
     );
     return () => controller.abort();
@@ -59,6 +68,8 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
 
   if (state.status === "loading")
     return <Spinner label="Loading concepts…" className="self-center" />;
+
+  if (state.status === "missing") return <CourseNotFound />;
 
   if (state.status === "error")
     return (
@@ -76,7 +87,7 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
         title="No concepts yet"
         description="Upload notes for this course first. Their concepts will show up here to practice."
         action={
-          <Link href={courseHref} className={textLink}>
+          <Link href={courseHref} className={tapLink}>
             Go to the course
           </Link>
         }
@@ -93,7 +104,7 @@ export function ConceptPicker({ courseId, client = api }: ConceptPickerProps) {
               <div className="flex flex-col gap-1">
                 <Link
                   href={`${courseHref}/practice?concept=${encodeURIComponent(concept.id)}`}
-                  className={cn("font-medium", textLink)}
+                  className={cn("font-medium", tapLink)}
                 >
                   {concept.name}
                 </Link>

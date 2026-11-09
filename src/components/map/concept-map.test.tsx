@@ -108,6 +108,18 @@ describe("ConceptMap", () => {
     ).toHaveAttribute("href", "#all-concepts");
   });
 
+  // T32: at 390 px the skip link was 20 px tall and the list's links 24 px (browser walk). The links
+  // inside the graph scale with its zoom; this list is their full-size equivalent.
+  it("makes the skip link and every listed concept at least 44 px tall to tap", async () => {
+    render(<ConceptMap courseId={COURSE_ID} client={client()} />);
+    await screen.findByRole("region", { name: "Concept map" });
+    expect(
+      screen.getByRole("link", { name: "Skip to the concept list" }),
+    ).toHaveClass("inline-flex", "min-h-11");
+    for (const link of within(conceptList()).getAllByRole("link"))
+      expect(link).toHaveClass("min-h-11");
+  });
+
   it("explains the colors with a legend that names each state", async () => {
     render(<ConceptMap courseId={COURSE_ID} client={client()} />);
     const legend = await screen.findByRole("list", { name: "Legend" });
@@ -141,6 +153,10 @@ describe("ConceptMap", () => {
     expect(
       screen.getByRole("link", { name: "Go to the course" }),
     ).toHaveAttribute("href", `/courses/${COURSE_2_ID}`);
+    // T32: a way out that stands alone, so it's tap-sized (44 px).
+    expect(screen.getByRole("link", { name: "Go to the course" })).toHaveClass(
+      "min-h-11",
+    );
     expect(
       screen.queryByRole("region", { name: "Concept map" }),
     ).not.toBeInTheDocument();
@@ -192,17 +208,79 @@ describe("ConceptMap", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  // T32: another student's course (or an unknown or malformed id) once showed as an error with
+  // "Try again", unlike the course and practice pages.
+  describe("a course it can't show", () => {
+    it.each([
+      ["another student's course or an unknown id", 404, "NOT_FOUND"],
+      ["a malformed id", 400, "VALIDATION_ERROR"],
+    ])("says %s isn't found, with a way back", async (_name, status, code) => {
+      render(
+        <ConceptMap
+          courseId={COURSE_ID}
+          client={client(async () =>
+            Response.json({ error: { code, message: "Nope." } }, { status }),
+          )}
+          actions={<a href="/elsewhere">Course action</a>}
+        />,
+      );
+      expect(
+        await screen.findByRole("heading", { name: "Course not found" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: "Back to your courses" }),
+      ).toHaveAttribute("href", "/courses");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Try again" }),
+      ).not.toBeInTheDocument();
+      // Nothing that only makes sense for a course you can see.
+      expect(
+        screen.queryByRole("link", { name: "Course action" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the course's actions (Practice weakest)", () => {
+    const actions = <a href="/elsewhere">Course action</a>;
+    const action = () => screen.queryByRole("link", { name: "Course action" });
+
+    it("shows them once the map has loaded, not before", async () => {
+      render(
+        <ConceptMap courseId={COURSE_ID} client={client()} actions={actions} />,
+      );
+      expect(action()).not.toBeInTheDocument();
+      await screen.findByRole("region", { name: "Concept map" });
+      expect(action()).toBeInTheDocument();
+    });
+
+    it("shows them for a course with no concepts yet", async () => {
+      render(
+        <ConceptMap
+          courseId={COURSE_2_ID}
+          client={client()}
+          actions={actions}
+        />,
+      );
+      await screen.findByRole("heading", { name: "No concepts yet" });
+      expect(action()).toBeInTheDocument();
+    });
+
+    it("leaves them out when the map can't load", async () => {
+      render(
+        <ConceptMap
+          courseId={COURSE_ID}
+          client={client(async () => new Response(null, { status: 500 }))}
+          actions={actions}
+        />,
+      );
+      await screen.findByRole("alert");
+      expect(action()).not.toBeInTheDocument();
+    });
+  });
+
   describe("errors", () => {
     it.each([
-      [
-        "a 404",
-        async () =>
-          Response.json(
-            { error: { code: "NOT_FOUND", message: "Not found." } },
-            { status: 404 },
-          ),
-        "Not found.",
-      ],
       [
         "a non-JSON 500",
         async () => new Response("<h1>oops</h1>", { status: 500 }),

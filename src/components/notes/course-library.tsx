@@ -149,6 +149,7 @@ function CreateCourseForm({
     <Card>
       <form
         noValidate
+        method="post"
         aria-label="Create a course"
         onSubmit={(event) => void submit(event)}
         className="flex flex-col gap-3"

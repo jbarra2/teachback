@@ -7,7 +7,7 @@ import {
   EmptyState,
   ErrorState,
   Spinner,
-  textLink,
+  tapLink,
 } from "@/components/ui";
 import {
   ApiError,
@@ -121,7 +121,7 @@ export function PracticeSession({
         title="Concept not found"
         description="This concept doesn't exist or isn't in this course."
         action={
-          <Link href={pickerHref} className={textLink}>
+          <Link href={pickerHref} className={tapLink}>
             Choose a concept
           </Link>
         }

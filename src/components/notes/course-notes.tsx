@@ -1,11 +1,9 @@
 "use client";
 // /courses/[courseId] (T15): the course's notes with their status, an upload form, and the concepts
 // found so far. Concepts load once a document is READY, and again each time another one is.
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { EmptyState, ErrorState, Spinner, textLink } from "@/components/ui";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ErrorState, Spinner } from "@/components/ui";
 import {
-  ApiError,
   api,
   isAbortError,
   unwrap,
@@ -16,6 +14,7 @@ import {
   type DocumentSummary,
 } from "@/lib/api-client";
 import { ConceptList } from "./concept-list";
+import { CourseNotFound, isCourseMissing } from "./course-not-found";
 import { DocumentList } from "./document-list";
 import { errorMessage } from "./error-message";
 import { UploadForm } from "./upload-form";
@@ -33,11 +32,17 @@ type ConceptState =
 
 interface CourseNotesProps {
   courseId: string;
+  /** Links for this course (practice, the map). Shown only once the course has loaded. */
+  actions?: ReactNode;
   /** Tests pass a client with mocks or a failing network. */
   client?: ApiClient;
 }
 
-export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
+export function CourseNotes({
+  courseId,
+  actions,
+  client = api,
+}: CourseNotesProps) {
   const [state, setState] = useState<CourseState>({ status: "loading" });
   // Bumped by "Try again".
   const [attempt, setAttempt] = useState(0);
@@ -55,12 +60,7 @@ export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
       },
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
-        // An unknown id and another student's course look the same: not found.
-        if (
-          error instanceof ApiError &&
-          (error.code === "NOT_FOUND" || error.code === "VALIDATION_ERROR")
-        )
-          setState({ status: "missing" });
+        if (isCourseMissing(error)) setState({ status: "missing" });
         else setState({ status: "error", message: errorMessage(error) });
       },
     );
@@ -110,18 +110,7 @@ export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
       />
     );
 
-  if (state.status === "missing")
-    return (
-      <EmptyState
-        title="Course not found"
-        description="It may have been removed, or the link is wrong."
-        action={
-          <Link href="/courses" className={textLink}>
-            Back to your courses
-          </Link>
-        }
-      />
-    );
+  if (state.status === "missing") return <CourseNotFound />;
 
   const { course } = state;
   const readyCount = course.documents.filter(
@@ -130,6 +119,7 @@ export function CourseNotes({ courseId, client = api }: CourseNotesProps) {
 
   return (
     <div className="flex flex-col gap-8">
+      {actions}
       <h2 className="text-xl font-semibold">{course.name}</h2>
       <UploadForm
         courseId={course.id}
