@@ -609,3 +609,25 @@ The 127.0.0.1 fix passed all its unit tests and still failed in the browser with
 
 **What I learned:**
 Unit tests that call a function directly can't see what the framework does to its result, so behaviour that depends on the framework needs one test through the real server. Live runs also turned up two bugs no unit test was looking for: a form that falls back to GET before hydration, and a blank page when the database is down. And a stale dev build cache can look exactly like an app bug.
+
+## T33 · README & submission prep (#33) · Nov 8, 2026
+
+**What I built:** The final README: what the app does, with screenshots of real Claude feedback, the concept map and a course; step-by-step local setup with the ports it uses; the demo accounts; fake AI versus real Claude; stopping and restarting the databases; troubleshooting; every test suite, including the end-to-end tests and the grading eval; the security measures; how grounding and confidence work; the architecture; the API docs; the Team table; and known limitations, including the bug-bash issues still open. I also made `npm run setup` download the browser the end-to-end tests need, with tests for it.
+
+**Skills & tools:** Technical writing, Markdown, Playwright (screenshots, browser install), the Claude API through our provider, Docker, Node child processes, Vitest, GitHub CLI, Claude Code
+
+**Asked Claude for:** Finish the README right after the bug bash merged so we could submit the same day, take the screenshots with real Claude using my own key instead of the fake AI, and run the fresh-clone test on Windows even though it meant stopping my database containers for a while.
+
+**Decided / dropped:**
+
+- Took the screenshots from real Claude on the fictional demo notes. The fake AI's canned question and quotes looked broken, and a grader sees the screenshots first. The same run doubled as the end-to-end check of the real AI path I still owed from T28.
+- Dropped the course-list screenshot: an almost empty page added nothing next to the course, feedback and map shots.
+- Made setup install Playwright's Chromium instead of only documenting it, so a fresh clone can run `npm run verify` without an extra step.
+- Ran the fresh clone in a folder with a different name, because Docker Compose names containers and volumes after the folder, and a second `teachback` folder would have shared my development database.
+- Closed T33 with two items still open (a teammate's journal review markers and a macOS run), and listed them in the PR rather than holding back the submission.
+
+**Hardest part, and how I solved it:**
+Making sure a grader can follow the README from an empty folder. Walking through it showed that `npm run verify` now ends with the end-to-end tests, which need a browser that npm never downloads, so a fresh clone would have failed at the last step. I added the download to setup, tested it with a stub `npx` that records its arguments, and then ran the whole README in a fresh clone on Windows: setup, the app with the demo account, and the full gate all passed.
+
+**What I learned:**
+A README is something to test, not just proofread: each new tool the project picks up can quietly break the "follow these steps" path, and only a clean run catches it. Screenshots are part of the evidence too, so they should show the real product, not a test stand-in.
